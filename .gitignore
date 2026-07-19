@@ -1,0 +1,11 @@
+node_modules
+dist
+.DS_Store
+*.local
+.env
+.env.production
+.vercel
+server/*.sqlite
+server/*.sqlite-journal
+server/*.sqlite-wal
+server/*.sqlite-shm

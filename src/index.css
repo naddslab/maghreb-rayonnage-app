@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  @apply bg-ink-50 text-ink-800 font-sans;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #dfe2e7;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #cbd0d8;
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-card border border-ink-200;
+  }
+
+  .card-hover {
+    @apply transition-colors duration-150 hover:border-accent-300;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-accent-500 px-4 py-2.5
+      text-[13px] font-bold text-white transition-all duration-150
+      hover:bg-accent-600 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5
+      text-[13px] font-semibold text-ink-700 border border-ink-200 transition-all duration-200
+      hover:border-ink-300 hover:bg-ink-50 active:scale-[0.98];
+  }
+
+  .input-field {
+    @apply w-full rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-[13.5px] text-ink-800
+      placeholder:text-ink-400 outline-none transition-all duration-150
+      focus:border-accent-400 focus:ring-2 focus:ring-accent-100;
+  }
+
+  .label-field {
+    @apply mb-1.5 block text-[12.5px] font-bold uppercase tracking-wide text-ink-500;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-md px-2 py-[3px] text-[11px] font-bold;
+  }
+
+  .nav-link {
+    @apply flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-semibold text-ink-500
+      transition-all duration-150 hover:bg-ink-100 hover:text-ink-800;
+  }
+
+  .nav-link-active {
+    @apply bg-accent-50 text-accent-600 hover:bg-accent-50 hover:text-accent-600;
+  }
+}
+
+@layer utilities {
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Explicit declarations (kept in sync with tailwind.config.js theme.extend values)
+   so these render correctly even if the dev server's Tailwind context is stale. */
+body {
+  background-color: #f7f7f5;
+}
+
+.rounded-card,
+.card {
+  border-radius: 14px;
+}
+
+.shadow-xs {
+  box-shadow: 0 1px 2px rgba(20, 20, 20, 0.04);
+}
+
+.shadow-glossy {
+  box-shadow: 0 1px 1px rgba(255, 255, 255, 0.5) inset;
+}
+
+.bg-accent-glossy {
+  background-image: radial-gradient(120% 140% at 15% -10%, #ffd9ae 0%, #f7a253 35%, #e67e22 65%, #c25e12 100%);
+}
+
+.shadow-glowAccent {
+  box-shadow: none;
+}

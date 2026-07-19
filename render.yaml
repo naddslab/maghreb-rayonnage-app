@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: maghreb-rayonnage-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
