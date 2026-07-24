@@ -11,6 +11,7 @@ primary_region = "iad"
 
 [build]
   dockerfile = "server/Dockerfile"
+  ignorefile = "server/Dockerfile.dockerignore"
 
 [env]
   NODE_ENV = "production"
