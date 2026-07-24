@@ -3,6 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import {
   initDb,
+  closeDb,
   getAllMessages,
   insertMessage,
   getAllFacts,
@@ -19,6 +20,10 @@ const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date'])
 const app = express()
 app.use(cors())
 app.use(express.json())
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' })
+})
 
 app.get('/api/messages', async (req, res) => {
   res.json(await getAllMessages())
@@ -104,11 +109,25 @@ app.delete('/api/facts/:id', async (req, res) => {
   res.status(204).end()
 })
 
+// Catches errors from any route above (including rejected promises in async handlers,
+// which Express 5 forwards here automatically) so the API always replies with JSON —
+// never Express's default HTML error page, which would break the frontend's res.json().
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route introuvable.' })
+})
+
+app.use((err, req, res, next) => {
+  console.error('Erreur serveur non gérée :', err)
+  res.status(500).json({ error: 'Une erreur interne est survenue.' })
+})
+
 const PORT = process.env.PORT || 8787
+
+let server
 
 initDb()
   .then(() => {
-    app.listen(PORT, () => {
+    server = app.listen(PORT, () => {
       console.log(`API assistant IA prête sur http://localhost:${PORT}`)
     })
   })
@@ -116,3 +135,15 @@ initDb()
     console.error('Impossible d\u2019initialiser la base de données :', err)
     process.exit(1)
   })
+
+// Platforms like Fly.io and Railway send SIGTERM before restarting/redeploying a container —
+// close connections cleanly instead of dropping them mid-request.
+async function shutdown() {
+  console.log('Arrêt en cours, fermeture des connexions...')
+  if (server) server.close()
+  await closeDb().catch(() => {})
+  process.exit(0)
+}
+
+process.on('SIGTERM', shutdown)
+process.on('SIGINT', shutdown)

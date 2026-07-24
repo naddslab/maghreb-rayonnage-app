@@ -20,10 +20,16 @@ if (!process.env.DATABASE_URL) {
 }
 
 // Supabase's PostgreSQL requires SSL; rejectUnauthorized: false avoids self-signed chain issues
-// in most managed environments (Render, local dev) without requiring a CA bundle.
+// in most managed environments (local dev, Railway, Fly.io) without requiring a CA bundle.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
+})
+
+// Idle clients can be dropped by the DB provider at any time; without this listener that
+// surfaces as an uncaught exception and takes the whole process down.
+pool.on('error', (err) => {
+  console.error('Erreur inattendue du pool PostgreSQL :', err)
 })
 
 function rowToFact(row) {
@@ -207,4 +213,6 @@ export async function initDb() {
   await seedAiSettingsIfMissing()
 }
 
-export default pool
+export async function closeDb() {
+  await pool.end()
+}
