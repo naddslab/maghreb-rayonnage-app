@@ -105,11 +105,34 @@ export async function saveAiSettings(systemPrompt, businessContext, userId = DEF
   return rows[0]
 }
 
-// Seed a handful of realistic example facts on first run so the Base de connaissances
-// section in Settings isn't empty before the assistant has extracted anything for real.
+// Tracks one-time setup tasks (e.g. demo-data seeding) that should never repeat, even if the
+// table they seed is later emptied on purpose (e.g. a user manually clearing demo data before
+// handing the app to someone else). Gating on this instead of "is the table empty?" means a
+// deliberate clear stays cleared across restarts/redeploys.
+async function hasSeeded(key) {
+  const { rows } = await pool.query('SELECT 1 FROM seed_state WHERE key = $1', [key])
+  return rows.length > 0
+}
+
+async function markSeeded(key) {
+  await pool.query(
+    'INSERT INTO seed_state (key, seeded_at) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING',
+    [key, new Date().toISOString()]
+  )
+}
+
+// Seed a handful of realistic example facts the first time this app ever runs, so the Base de
+// connaissances section in Settings isn't empty before the assistant has extracted anything for
+// real. Runs at most once ever (see hasSeeded/markSeeded) — deleting all facts later does not
+// bring the demo data back.
 async function seedFactsIfEmpty() {
+  if (await hasSeeded('facts')) return
+
   const { rows } = await pool.query('SELECT COUNT(*) AS c FROM facts')
-  if (Number(rows[0].c) > 0) return
+  if (Number(rows[0].c) > 0) {
+    await markSeeded('facts')
+    return
+  }
 
   const now = new Date()
   const tomorrow9am = new Date(now)
@@ -168,13 +191,21 @@ async function seedFactsIfEmpty() {
   for (const f of seedFacts) {
     await insertFact(f.fact_type, f.content)
   }
+
+  await markSeeded('facts')
 }
 
-// Seed the default persona/business context on first run, so the app behaves the same
-// way before Rachid ever visits Réglages as it does after — and Settings shows what's really used.
+// Seed the default persona/business context the first time this app ever runs, so it behaves
+// the same way before Rachid ever visits Réglages as it does after. Runs at most once ever —
+// if the ai_settings row is later deleted on purpose, this will not silently recreate it.
 async function seedAiSettingsIfMissing() {
-  if (await getAiSettings()) return
-  await saveAiSettings(SYSTEM_PROMPT, DEFAULT_BUSINESS_CONTEXT)
+  if (await hasSeeded('ai_settings')) return
+
+  if (!(await getAiSettings())) {
+    await saveAiSettings(SYSTEM_PROMPT, DEFAULT_BUSINESS_CONTEXT)
+  }
+
+  await markSeeded('ai_settings')
 }
 
 // Creates all tables (if missing) and seeds first-run data. Must be awaited before the
@@ -206,6 +237,13 @@ export async function initDb() {
       system_prompt TEXT NOT NULL,
       business_context TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    )
+  `)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS seed_state (
+      key TEXT PRIMARY KEY,
+      seeded_at TEXT NOT NULL
     )
   `)
 
