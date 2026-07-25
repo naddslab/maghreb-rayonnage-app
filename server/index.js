@@ -106,6 +106,35 @@ async function persistExtractedFacts(extracted, existingClients) {
         continue
       }
 
+      // delete_client gets its own dedicated path (rather than sharing the generic lookup below)
+      // so every step — extraction, lookup, and the delete itself — is individually logged. Those
+      // logs show up in `fly logs` and pinpoint exactly which step is failing if a deletion
+      // requested in chat doesn't actually remove the client.
+      if (f.fact_type === 'delete_client') {
+        console.log('DELETE_CLIENT extracted:', c.client_name)
+
+        const client = findClientByName(knownClients, c.client_name)
+        console.log('Found client for deletion:', client ? client.name : 'NOT FOUND')
+
+        if (!client) {
+          console.warn('Client not found for deletion:', c.client_name)
+          continue
+        }
+
+        try {
+          const result = await deleteClient(client.id)
+          console.log('Client deleted successfully:', result)
+          knownClients.splice(knownClients.indexOf(client), 1)
+          // The chat reply for this turn was already sent before this runs (extraction is
+          // fire-and-forget), so this confirmation can't appear in that same reply — it's saved
+          // as a new assistant message and will show up the next time the conversation is loaded.
+          await insertMessage('assistant', `${client.name} supprimé.`)
+        } catch (err) {
+          console.error('Delete failed:', err.message)
+        }
+        continue
+      }
+
       const client = findClientByName(knownClients, c.client_name)
       if (!client) {
         console.warn(`Extraction "${f.fact_type}" ignorée : client "${c.client_name}" introuvable.`)
@@ -119,14 +148,6 @@ async function persistExtractedFacts(extracted, existingClients) {
         await createMeeting(client.id, c.meeting_date, c.notes, c.meeting_type)
       } else if (f.fact_type === 'activity') {
         await createActivity(client.id, c.activity_type, c.amount, c.description)
-      } else if (f.fact_type === 'delete_client') {
-        await deleteClient(client.id)
-        knownClients.splice(knownClients.indexOf(client), 1)
-        console.log(`Client supprimé via l'assistant IA : ${client.name} (id ${client.id})`)
-        // The chat reply for this turn was already sent before this runs (extraction is
-        // fire-and-forget), so this confirmation can't appear in that same reply — it's saved as
-        // a new assistant message and will show up the next time the conversation is loaded.
-        await insertMessage('assistant', `${client.name} supprimé.`)
       } else {
         console.warn(`Type de fait extrait inconnu, ignoré : ${f.fact_type}`)
       }
