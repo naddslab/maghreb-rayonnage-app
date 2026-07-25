@@ -152,11 +152,15 @@ const EXTRACTION_SYSTEM_PROMPT = `Tu es un extracteur de faits structurés pour 
 - "deal_update" : un changement de valeur (montant) sur une offre en cours pour un client déjà identifié. Champs : client_name (le nom du client, ou null si l'échange ne permet pas de l'identifier avec certitude), old_value, new_value, reason.
 - "meeting" : une réunion tenue ou planifiée avec un client, mentionnée explicitement dans l'échange. Champs : client_name, meeting_date, notes, meeting_type.
 - "activity" : un événement notable concernant un client (signature d'un contrat, devis refusé, paiement reçu, nouveau lead, etc.). Champs : client_name, activity_type, amount, description.
+- "delete_client" : Rachid demande EXPLICITEMENT de supprimer un client déjà connu (ex. "supprime Karim Benali", "retire ce client", "efface la fiche de X", "delete [nom]"). Champs : client_name (nom exact du client, tel qu'il apparaît dans la liste des clients connus).
 
 Règles importantes pour "client" :
 - Si l'un des champs email, phone, location, next_step, value, importance n'est PAS mentionné dans l'échange, mets-le explicitement à null dans le JSON — ne l'omets pas, et n'invente JAMAIS une valeur manquante.
 - Si le client correspond à un client déjà connu (liste fournie ci-dessous), reprends exactement le même nom pour qu'il puisse être relié à la bonne fiche plutôt que créé en double.
 - "vault" identifie laquelle des trois entreprises de Rachid gère la relation avec ce client — PAS l'entreprise du client lui-même (qui va dans "company"). Utilise uniquement l'un de ces identifiants exacts : ${VAULT_LIST_FOR_PROMPT}. Ne déduis "vault" que si le coffre est explicitement mentionné ou clairement évident dans le contexte ; sinon mets null. N'invente jamais cette valeur.
+
+Règle importante pour "delete_client" :
+- N'extrais "delete_client" QUE si Rachid demande sans ambiguïté de supprimer/retirer/effacer un client précis. Une simple mention du client, une mise à jour, ou une phrase comme "ce client ne m'intéresse plus pour l'instant" ne sont PAS des demandes de suppression — dans le doute, n'extrais rien plutôt que de risquer une suppression involontaire.
 
 Réponds UNIQUEMENT avec un tableau JSON valide, sans aucun texte ni bloc de code autour, au format exact :
 [{"fact_type": "client", "content": {"name": "...", "company": "...", "contact": "...", "email": null, "phone": null, "location": null, "next_step": null, "value": null, "importance": null, "vault": null, "meeting_date": "..."}}]
@@ -169,10 +173,11 @@ Champs par type :
 - deal_update : client_name, old_value, new_value, reason
 - meeting : client_name, meeting_date, notes, meeting_type
 - activity : client_name, activity_type, amount, description
+- delete_client : client_name
 
 Toutes les dates doivent être des timestamps ISO 8601 absolus, calculés à partir de la date actuelle fournie (jamais des expressions relatives comme "demain"). Pour "client", n'omets un champ que si le concept lui-même n'a pas de sens dans le contexte (par exemple pas de company pour un particulier) ; pour email/phone/location/next_step/value/importance/vault, préfère toujours null explicite à l'omission. Si l'échange ne contient aucune information digne d'être mémorisée, réponds avec un tableau vide : []`
 
-const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date', 'deal_update', 'meeting', 'activity'])
+const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date', 'deal_update', 'meeting', 'activity', 'delete_client'])
 
 // Compact "Karim Benali (Marjane Holding)" style list injected into the extraction prompt so
 // Claude can match a client mentioned by name to an existing record (for "client" updates and
