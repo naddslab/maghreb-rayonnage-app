@@ -105,6 +105,248 @@ export async function saveAiSettings(systemPrompt, businessContext, userId = DEF
   return rows[0]
 }
 
+// ---------- Clients ----------
+
+function rowToClient(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    name: row.name,
+    company: row.company,
+    contact: row.contact,
+    email: row.email,
+    phone: row.phone,
+    location: row.location,
+    nextStep: row.next_step,
+    value: row.value === null ? null : Number(row.value),
+    importance: row.importance,
+    vaultId: row.vault_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export async function getAllClients() {
+  try {
+    const { rows } = await pool.query('SELECT * FROM clients ORDER BY id DESC')
+    return rows.map(rowToClient)
+  } catch (err) {
+    throw new Error(`Impossible de récupérer la liste des clients : ${err.message}`)
+  }
+}
+
+export async function getClientById(clientId) {
+  try {
+    const { rows } = await pool.query('SELECT * FROM clients WHERE id = $1', [clientId])
+    return rowToClient(rows[0])
+  } catch (err) {
+    throw new Error(`Impossible de récupérer le client ${clientId} : ${err.message}`)
+  }
+}
+
+export async function createClient(name, company, contact, email, phone, location, nextStep, value, importance, vaultId) {
+  if (!name || !String(name).trim()) {
+    throw new Error('Le nom du client est requis.')
+  }
+  const now = new Date().toISOString()
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO clients (name, company, contact, email, phone, location, next_step, value, importance, vault_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+       RETURNING *`,
+      [name, company ?? null, contact ?? null, email ?? null, phone ?? null, location ?? null, nextStep ?? null, value ?? null, importance ?? null, vaultId ?? null, now]
+    )
+    return rowToClient(rows[0])
+  } catch (err) {
+    throw new Error(`Impossible de créer le client "${name}" : ${err.message}`)
+  }
+}
+
+// Maps the camelCase keys callers use in `updates` to the snake_case columns in the clients
+// table, and only ever updates fields explicitly present in `updates` — anything else on the
+// row is left untouched.
+const CLIENT_FIELD_TO_COLUMN = {
+  name: 'name',
+  company: 'company',
+  contact: 'contact',
+  email: 'email',
+  phone: 'phone',
+  location: 'location',
+  nextStep: 'next_step',
+  value: 'value',
+  importance: 'importance',
+  vaultId: 'vault_id',
+}
+
+export async function updateClient(clientId, updates = {}) {
+  const entries = Object.entries(updates).filter(([key]) => CLIENT_FIELD_TO_COLUMN[key])
+  if (entries.length === 0) {
+    throw new Error('Aucun champ valide à mettre à jour pour ce client.')
+  }
+
+  const setClauses = entries.map(([key], i) => `${CLIENT_FIELD_TO_COLUMN[key]} = $${i + 1}`)
+  const values = entries.map(([, value]) => value)
+  const updatedAtIndex = values.length + 1
+  const clientIdIndex = values.length + 2
+  values.push(new Date().toISOString(), clientId)
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE clients SET ${setClauses.join(', ')}, updated_at = $${updatedAtIndex}
+       WHERE id = $${clientIdIndex}
+       RETURNING *`,
+      values
+    )
+    return rowToClient(rows[0])
+  } catch (err) {
+    throw new Error(`Impossible de mettre à jour le client ${clientId} : ${err.message}`)
+  }
+}
+
+export async function deleteClient(clientId) {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM clients WHERE id = $1', [clientId])
+    return { deleted: rowCount > 0 }
+  } catch (err) {
+    throw new Error(`Impossible de supprimer le client ${clientId} : ${err.message}`)
+  }
+}
+
+// ---------- Deal history ----------
+
+function rowToDealHistory(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    oldValue: row.old_value === null ? null : Number(row.old_value),
+    newValue: row.new_value === null ? null : Number(row.new_value),
+    reason: row.reason,
+    createdAt: row.created_at,
+  }
+}
+
+export async function getAllDealHistory(clientId) {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM deal_history WHERE client_id = $1 ORDER BY created_at ASC, id ASC',
+      [clientId]
+    )
+    return rows.map(rowToDealHistory)
+  } catch (err) {
+    throw new Error(`Impossible de récupérer l'historique des offres du client ${clientId} : ${err.message}`)
+  }
+}
+
+export async function createDealHistory(clientId, oldValue, newValue, reason) {
+  const now = new Date().toISOString()
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO deal_history (client_id, old_value, new_value, reason, created_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [clientId, oldValue ?? null, newValue ?? null, reason ?? null, now]
+    )
+    return rowToDealHistory(rows[0])
+  } catch (err) {
+    if (err.code === '23503') {
+      throw new Error(`Client introuvable (id ${clientId}) : impossible d'ajouter un historique d'offre.`)
+    }
+    throw new Error(`Impossible de créer l'historique d'offre pour le client ${clientId} : ${err.message}`)
+  }
+}
+
+// ---------- Meetings ----------
+
+function rowToMeeting(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    meetingDate: row.meeting_date,
+    notes: row.notes,
+    meetingType: row.meeting_type,
+    createdAt: row.created_at,
+  }
+}
+
+export async function getAllMeetings(clientId) {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM meetings WHERE client_id = $1 ORDER BY meeting_date ASC, id ASC',
+      [clientId]
+    )
+    return rows.map(rowToMeeting)
+  } catch (err) {
+    throw new Error(`Impossible de récupérer les réunions du client ${clientId} : ${err.message}`)
+  }
+}
+
+export async function createMeeting(clientId, meetingDate, notes, meetingType) {
+  if (!meetingDate) {
+    throw new Error('La date de la réunion est requise.')
+  }
+  const now = new Date().toISOString()
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO meetings (client_id, meeting_date, notes, meeting_type, created_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [clientId, meetingDate, notes ?? null, meetingType ?? null, now]
+    )
+    return rowToMeeting(rows[0])
+  } catch (err) {
+    if (err.code === '23503') {
+      throw new Error(`Client introuvable (id ${clientId}) : impossible de créer la réunion.`)
+    }
+    throw new Error(`Impossible de créer la réunion pour le client ${clientId} : ${err.message}`)
+  }
+}
+
+// ---------- Activities ----------
+
+function rowToActivity(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    activityType: row.activity_type,
+    amount: row.amount === null ? null : Number(row.amount),
+    description: row.description,
+    createdAt: row.created_at,
+  }
+}
+
+export async function getAllActivities(clientId) {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM activities WHERE client_id = $1 ORDER BY created_at DESC, id DESC',
+      [clientId]
+    )
+    return rows.map(rowToActivity)
+  } catch (err) {
+    throw new Error(`Impossible de récupérer les activités du client ${clientId} : ${err.message}`)
+  }
+}
+
+export async function createActivity(clientId, activityType, amount, description) {
+  const now = new Date().toISOString()
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO activities (client_id, activity_type, amount, description, created_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [clientId, activityType ?? null, amount ?? null, description ?? null, now]
+    )
+    return rowToActivity(rows[0])
+  } catch (err) {
+    if (err.code === '23503') {
+      throw new Error(`Client introuvable (id ${clientId}) : impossible de créer l'activité.`)
+    }
+    throw new Error(`Impossible de créer l'activité pour le client ${clientId} : ${err.message}`)
+  }
+}
+
 // Tracks one-time setup tasks (e.g. demo-data seeding) that should never repeat, even if the
 // table they seed is later emptied on purpose (e.g. a user manually clearing demo data before
 // handing the app to someone else). Gating on this instead of "is the table empty?" means a
@@ -237,6 +479,62 @@ export async function initDb() {
       system_prompt TEXT NOT NULL,
       business_context TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    )
+  `)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clients (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      company TEXT,
+      contact TEXT,
+      email TEXT,
+      phone TEXT,
+      location TEXT,
+      next_step TEXT,
+      value NUMERIC,
+      importance TEXT CHECK (importance IN ('X', 'XX', 'XXX')),
+      vault_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `)
+
+  // Backfills vault_id on databases created before vault tracking existed — CREATE TABLE IF NOT
+  // EXISTS above is a no-op once the table already exists, so older deployments need this to pick
+  // up the new column.
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS vault_id TEXT`)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deal_history (
+      id SERIAL PRIMARY KEY,
+      client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      old_value NUMERIC,
+      new_value NUMERIC,
+      reason TEXT,
+      created_at TEXT NOT NULL
+    )
+  `)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS meetings (
+      id SERIAL PRIMARY KEY,
+      client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      meeting_date TEXT NOT NULL,
+      notes TEXT,
+      meeting_type TEXT,
+      created_at TEXT NOT NULL
+    )
+  `)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS activities (
+      id SERIAL PRIMARY KEY,
+      client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      activity_type TEXT,
+      amount NUMERIC,
+      description TEXT,
+      created_at TEXT NOT NULL
     )
   `)
 

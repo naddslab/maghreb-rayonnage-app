@@ -59,7 +59,9 @@ export default function ClientsTable({ clients, showCompanyName = false, title =
                 <td className="px-4 py-2 font-bold text-ink-800">
                   {c.nomEntreprise}
                   {showCompanyName && (
-                    <div className="mt-0.5 text-[10.5px] font-medium text-ink-400">via {getCompany(c.companyId)?.name}</div>
+                    <div className="mt-0.5 text-[10.5px] font-medium text-ink-400">
+                      via {getCompany(c.companyId)?.name || 'coffre non assigné'}
+                    </div>
                   )}
                 </td>
                 <td className="px-3 py-2">
@@ -101,7 +103,9 @@ export default function ClientsTable({ clients, showCompanyName = false, title =
                 <p className="text-[13px] font-extrabold text-ink-800">{c.nomEntreprise}</p>
                 <p className="text-[12px] font-semibold text-ink-600">{c.nomClient}</p>
                 <p className="text-[10.5px] text-ink-400">{c.poste}</p>
-                {showCompanyName && <p className="mt-0.5 text-[10.5px] text-ink-400">via {getCompany(c.companyId)?.name}</p>}
+                {showCompanyName && (
+                  <p className="mt-0.5 text-[10.5px] text-ink-400">via {getCompany(c.companyId)?.name || 'coffre non assigné'}</p>
+                )}
               </div>
               <ImportanceTag level={c.importance} />
             </div>

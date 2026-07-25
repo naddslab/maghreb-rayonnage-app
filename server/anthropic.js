@@ -14,6 +14,23 @@ const FACT_TYPE_LABELS = {
   date: 'Dates importantes',
 }
 
+// The three vaults (businesses) clients can belong to. Shared between the extraction prompt
+// below and server/index.js so a client mentioned by name or id always resolves the same way.
+export const VAULTS = [
+  { id: 'maghreb-rayonnage', name: 'Maghreb Rayonnage' },
+  { id: 'az-rayonnage', name: 'AZ Rayonnage' },
+  { id: 'top-rayonnage', name: 'Top Rayonnage' },
+]
+
+// Accepts either a canonical vault id ("maghreb-rayonnage") or its display name
+// ("Maghreb Rayonnage") and normalizes to the canonical id, or null if unrecognized.
+export function resolveVaultId(vault) {
+  if (!vault) return null
+  const v = String(vault).trim().toLowerCase()
+  const match = VAULTS.find((x) => x.id.toLowerCase() === v || x.name.toLowerCase() === v)
+  return match ? match.id : null
+}
+
 let client = null
 
 function getClient() {
@@ -124,9 +141,11 @@ export async function getAssistantReply(history, systemPrompt = SYSTEM_PROMPT, b
   return textBlock?.text ?? ''
 }
 
+const VAULT_LIST_FOR_PROMPT = VAULTS.map((v) => `"${v.id}" (${v.name})`).join(', ')
+
 const EXTRACTION_SYSTEM_PROMPT = `Tu es un extracteur de faits structurés pour un CRM. Analyse l'échange ci-dessous entre Rachid (dirigeant de Maghreb Rayonnage, AZ Rayonnage et Top Rayonnage) et son assistant IA. Extrais uniquement les informations NOUVELLES ou mises à jour qui méritent d'être mémorisées durablement, parmi ces catégories :
 
-- "client" : un NOUVEAU client, ou une MISE À JOUR d'un client déjà connu (voir la liste des clients connus fournie ci-dessous, si elle est présente). Champs : name, company, contact, email, phone, location, next_step, value, importance, meeting_date.
+- "client" : un NOUVEAU client, ou une MISE À JOUR d'un client déjà connu (voir la liste des clients connus fournie ci-dessous, si elle est présente). Champs : name, company, contact, email, phone, location, next_step, value, importance, vault, meeting_date.
 - "goal" : un objectif exprimé par Rachid. Champs : description, targetDate.
 - "task" : une tâche ou un rappel à faire, avec une échéance si mentionnée. Champs : description, dueDate.
 - "date" : une date ou un rendez-vous important, avec son horaire si précisé. Champs : label, datetime, relatedTo.
@@ -137,12 +156,13 @@ const EXTRACTION_SYSTEM_PROMPT = `Tu es un extracteur de faits structurés pour 
 Règles importantes pour "client" :
 - Si l'un des champs email, phone, location, next_step, value, importance n'est PAS mentionné dans l'échange, mets-le explicitement à null dans le JSON — ne l'omets pas, et n'invente JAMAIS une valeur manquante.
 - Si le client correspond à un client déjà connu (liste fournie ci-dessous), reprends exactement le même nom pour qu'il puisse être relié à la bonne fiche plutôt que créé en double.
+- "vault" identifie laquelle des trois entreprises de Rachid gère la relation avec ce client — PAS l'entreprise du client lui-même (qui va dans "company"). Utilise uniquement l'un de ces identifiants exacts : ${VAULT_LIST_FOR_PROMPT}. Ne déduis "vault" que si le coffre est explicitement mentionné ou clairement évident dans le contexte ; sinon mets null. N'invente jamais cette valeur.
 
 Réponds UNIQUEMENT avec un tableau JSON valide, sans aucun texte ni bloc de code autour, au format exact :
-[{"fact_type": "client", "content": {"name": "...", "company": "...", "contact": "...", "email": null, "phone": null, "location": null, "next_step": null, "value": null, "importance": null, "meeting_date": "..."}}]
+[{"fact_type": "client", "content": {"name": "...", "company": "...", "contact": "...", "email": null, "phone": null, "location": null, "next_step": null, "value": null, "importance": null, "vault": null, "meeting_date": "..."}}]
 
 Champs par type :
-- client : name, company, contact, email, phone, location, next_step, value, importance, meeting_date
+- client : name, company, contact, email, phone, location, next_step, value, importance, vault, meeting_date
 - goal : description, targetDate
 - task : description, dueDate
 - date : label, datetime, relatedTo
@@ -150,7 +170,7 @@ Champs par type :
 - meeting : client_name, meeting_date, notes, meeting_type
 - activity : client_name, activity_type, amount, description
 
-Toutes les dates doivent être des timestamps ISO 8601 absolus, calculés à partir de la date actuelle fournie (jamais des expressions relatives comme "demain"). Pour "client", n'omets un champ que si le concept lui-même n'a pas de sens dans le contexte (par exemple pas de company pour un particulier) ; pour email/phone/location/next_step/value/importance, préfère toujours null explicite à l'omission. Si l'échange ne contient aucune information digne d'être mémorisée, réponds avec un tableau vide : []`
+Toutes les dates doivent être des timestamps ISO 8601 absolus, calculés à partir de la date actuelle fournie (jamais des expressions relatives comme "demain"). Pour "client", n'omets un champ que si le concept lui-même n'a pas de sens dans le contexte (par exemple pas de company pour un particulier) ; pour email/phone/location/next_step/value/importance/vault, préfère toujours null explicite à l'omission. Si l'échange ne contient aucune information digne d'être mémorisée, réponds avec un tableau vide : []`
 
 const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date', 'deal_update', 'meeting', 'activity'])
 
@@ -161,7 +181,7 @@ function formatExistingClientsForPrompt(existingClients) {
   if (!Array.isArray(existingClients) || existingClients.length === 0) return ''
   const lines = existingClients
     .slice(0, 50)
-    .map((c) => `- ${c.name}${c.company ? ` (${c.company})` : ''}`)
+    .map((c) => `- ${c.name}${c.company ? ` (${c.company})` : ''}${c.vaultId ? ` — coffre : ${c.vaultId}` : ''}`)
   return `\n\nClients déjà connus (reprends exactement le même nom pour toute mise à jour ou référence) :\n${lines.join('\n')}`
 }
 

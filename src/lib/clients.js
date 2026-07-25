@@ -46,8 +46,8 @@ export async function fetchClient(clientId) {
   return request(`/api/clients/${clientId}`)
 }
 
-export async function createClient(name, company, contact, email, phone, location, nextStep, value, importance) {
-  return postJson('/api/clients', { name, company, contact, email, phone, location, nextStep, value, importance })
+export async function createClient(name, company, contact, email, phone, location, nextStep, value, importance, vaultId) {
+  return postJson('/api/clients', { name, company, contact, email, phone, location, nextStep, value, importance, vaultId })
 }
 
 export async function updateClient(clientId, updates) {

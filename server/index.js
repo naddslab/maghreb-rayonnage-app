@@ -24,11 +24,20 @@ import {
   getAllActivities,
   createActivity,
 } from './db.js'
-import { getAssistantReply, buildSystemPrompt, extractFacts, stripMarkdown, SYSTEM_PROMPT } from './anthropic.js'
+import {
+  getAssistantReply,
+  buildSystemPrompt,
+  extractFacts,
+  stripMarkdown,
+  SYSTEM_PROMPT,
+  VAULTS,
+  resolveVaultId,
+} from './anthropic.js'
 
 const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date'])
 const VALID_IMPORTANCE = new Set(['X', 'XX', 'XXX'])
-const CLIENT_UPDATE_FIELDS = ['name', 'company', 'contact', 'email', 'phone', 'location', 'nextStep', 'value', 'importance']
+const VALID_VAULT_IDS = new Set(VAULTS.map((v) => v.id))
+const CLIENT_UPDATE_FIELDS = ['name', 'company', 'contact', 'email', 'phone', 'location', 'nextStep', 'value', 'importance', 'vaultId']
 
 // Fact types extracted by extractFacts() that aren't tied to a client record and still go
 // straight into the generic facts table, same as before this routing logic existed.
@@ -54,6 +63,7 @@ async function persistExtractedFacts(extracted, existingClients) {
 
   for (const f of clientItems) {
     const c = f.content || {}
+    const vaultId = resolveVaultId(c.vault)
     try {
       const existing = findClientByName(knownClients, c.name)
       if (existing) {
@@ -66,6 +76,9 @@ async function persistExtractedFacts(extracted, existingClients) {
         if (c.next_step != null) updates.nextStep = c.next_step
         if (c.value != null) updates.value = c.value
         if (c.importance != null) updates.importance = c.importance
+        // A client's vault is effectively permanent once known — only fill it in the first time
+        // it's identified, never let a later, possibly-ambiguous mention reassign it.
+        if (vaultId && !existing.vaultId) updates.vaultId = vaultId
         // Only send fields Claude actually mentioned this turn — a field left null just means
         // "not mentioned", not "clear it", so we must never overwrite existing data with null.
         if (Object.keys(updates).length > 0) {
@@ -74,7 +87,7 @@ async function persistExtractedFacts(extracted, existingClients) {
         }
       } else if (c.name) {
         const created = await createClient(
-          c.name, c.company, c.contact, c.email, c.phone, c.location, c.next_step, c.value, c.importance
+          c.name, c.company, c.contact, c.email, c.phone, c.location, c.next_step, c.value, c.importance, vaultId
         )
         knownClients.push(created)
       } else {
@@ -239,7 +252,7 @@ app.get('/api/clients/:clientId', (req, res) => {
 })
 
 app.post('/api/clients', async (req, res) => {
-  const { name, company, contact, email, phone, location, nextStep, value, importance } = req.body || {}
+  const { name, company, contact, email, phone, location, nextStep, value, importance, vaultId } = req.body || {}
   if (typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'Le nom du client est requis.' })
   }
@@ -249,7 +262,10 @@ app.post('/api/clients', async (req, res) => {
   if (importance !== undefined && importance !== null && !VALID_IMPORTANCE.has(importance)) {
     return res.status(400).json({ error: "L'importance doit être 'X', 'XX' ou 'XXX'." })
   }
-  const client = await createClient(name, company, contact, email, phone, location, nextStep, value, importance)
+  if (vaultId !== undefined && vaultId !== null && !VALID_VAULT_IDS.has(vaultId)) {
+    return res.status(400).json({ error: `vaultId doit être l'un de : ${[...VALID_VAULT_IDS].join(', ')}.` })
+  }
+  const client = await createClient(name, company, contact, email, phone, location, nextStep, value, importance, vaultId)
   res.status(201).json(client)
 })
 
@@ -269,6 +285,9 @@ app.put('/api/clients/:clientId', async (req, res) => {
   }
   if ('importance' in updates && updates.importance !== null && !VALID_IMPORTANCE.has(updates.importance)) {
     return res.status(400).json({ error: "L'importance doit être 'X', 'XX' ou 'XXX'." })
+  }
+  if ('vaultId' in updates && updates.vaultId !== null && !VALID_VAULT_IDS.has(updates.vaultId)) {
+    return res.status(400).json({ error: `vaultId doit être l'un de : ${[...VALID_VAULT_IDS].join(', ')}.` })
   }
 
   const updated = await updateClient(req.clientId, updates)
