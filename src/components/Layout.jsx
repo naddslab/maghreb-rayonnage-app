@@ -1,27 +1,16 @@
-import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Sparkles } from 'lucide-react'
 import Sidebar from './Sidebar'
 import MobileNav from './MobileNav'
 import TopBar from './TopBar'
-import ChatPanel from './ChatPanel'
 
 export default function Layout({ title, subtitle, children, fullBleed = false }) {
-  const [chatOpen, setChatOpen] = useState(false)
-
-  useEffect(() => {
-    function openChat() {
-      setChatOpen(true)
-    }
-    window.addEventListener('open-chat', openChat)
-    return () => window.removeEventListener('open-chat', openChat)
-  }, [])
-
   return (
     <div className={'flex bg-ink-50 ' + (fullBleed ? 'h-screen overflow-hidden' : 'min-h-screen')}>
       <Sidebar />
 
       <div className={'flex min-w-0 flex-1 flex-col ' + (fullBleed ? 'h-screen' : 'min-h-screen')}>
-        <TopBar title={title} subtitle={subtitle} onOpenChat={() => setChatOpen(true)} hideAssistantButton={fullBleed} />
+        <TopBar title={title} subtitle={subtitle} hideAssistantButton={fullBleed} />
 
         <main
           className={
@@ -35,19 +24,16 @@ export default function Layout({ title, subtitle, children, fullBleed = false })
       </div>
 
       {!fullBleed && (
-        <button
-          type="button"
-          onClick={() => setChatOpen(true)}
+        <Link
+          to="/assistant"
           className="fixed bottom-20 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white transition-transform active:scale-95 sm:hidden"
           aria-label="Ouvrir l'assistant IA"
         >
           <Sparkles size={22} />
-        </button>
+        </Link>
       )}
 
       <MobileNav />
-
-      {!fullBleed && <ChatPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} />}
     </div>
   )
 }

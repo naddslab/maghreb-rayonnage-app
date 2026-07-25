@@ -1,7 +1,8 @@
+import { Link } from 'react-router-dom'
 import { Bell, Search, Sparkles } from 'lucide-react'
 import { currentUser } from '../data/mockData'
 
-export default function TopBar({ title, subtitle, onOpenChat, hideAssistantButton = false }) {
+export default function TopBar({ title, subtitle, hideAssistantButton = false }) {
   return (
     <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-ink-200 bg-ink-50/90 px-4 py-3.5 backdrop-blur-lg sm:px-6 lg:px-7 lg:py-4">
       <div className="min-w-0">
@@ -20,14 +21,13 @@ export default function TopBar({ title, subtitle, onOpenChat, hideAssistantButto
         </div>
 
         {!hideAssistantButton && (
-          <button
-            type="button"
-            onClick={onOpenChat}
+          <Link
+            to="/assistant"
             className="hidden items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 py-2 text-[12.5px] font-bold text-white transition-transform active:scale-[0.98] sm:flex"
           >
             <Sparkles size={13} className="text-accent-400" />
             Assistant IA
-          </button>
+          </Link>
         )}
 
         <button

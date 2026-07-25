@@ -1,6 +1,7 @@
+import { Link } from 'react-router-dom'
 import { Sparkles, ArrowRight } from 'lucide-react'
 
-export default function PromoCard({ onOpenChat, compact = false }) {
+export default function PromoCard({ compact = false }) {
   return (
     <div
       className={
@@ -22,14 +23,13 @@ export default function PromoCard({ onOpenChat, compact = false }) {
         <p className="mt-1.5 max-w-[220px] text-[12.5px] leading-snug text-white/85">
           Résumés de coffres, préparation de réunions et relances suggérées, en un message.
         </p>
-        <button
-          type="button"
-          onClick={onOpenChat}
+        <Link
+          to="/assistant"
           className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-[12.5px] font-bold text-accent-700 transition-transform active:scale-[0.97]"
         >
           Essayer maintenant
           <ArrowRight size={14} />
-        </button>
+        </Link>
       </div>
     </div>
   )

@@ -29,7 +29,7 @@ export default function ClientsOverview() {
   return (
     <Layout title="Aperçu des clients" subtitle="Tous les coffres · Maghreb Rayonnage Group">
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        <PromoCard compact onOpenChat={() => window.dispatchEvent(new Event('open-chat'))} />
+        <PromoCard compact />
         <StatCard
           label="Clients au total"
           value={allClients.length}
