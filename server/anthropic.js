@@ -124,28 +124,52 @@ export async function getAssistantReply(history, systemPrompt = SYSTEM_PROMPT, b
   return textBlock?.text ?? ''
 }
 
-const EXTRACTION_SYSTEM_PROMPT = `Tu es un extracteur de faits structurés pour un CRM. Analyse l'échange ci-dessous entre Rachid (dirigeant de Maghreb Rayonnage, AZ Rayonnage et Top Rayonnage) et son assistant IA. Extrais uniquement les faits NOUVEAUX ou mis à jour qui méritent d'être mémorisés durablement, parmi ces catégories :
-- "client" : informations sur un client (nom, entreprise, contact, date de rendez-vous, notes)
-- "goal" : un objectif exprimé par Rachid
-- "task" : une tâche ou un rappel à faire, avec une échéance si mentionnée
-- "date" : une date ou un rendez-vous important, avec son horaire si précisé
+const EXTRACTION_SYSTEM_PROMPT = `Tu es un extracteur de faits structurés pour un CRM. Analyse l'échange ci-dessous entre Rachid (dirigeant de Maghreb Rayonnage, AZ Rayonnage et Top Rayonnage) et son assistant IA. Extrais uniquement les informations NOUVELLES ou mises à jour qui méritent d'être mémorisées durablement, parmi ces catégories :
+
+- "client" : un NOUVEAU client, ou une MISE À JOUR d'un client déjà connu (voir la liste des clients connus fournie ci-dessous, si elle est présente). Champs : name, company, contact, email, phone, location, next_step, value, importance, meeting_date.
+- "goal" : un objectif exprimé par Rachid. Champs : description, targetDate.
+- "task" : une tâche ou un rappel à faire, avec une échéance si mentionnée. Champs : description, dueDate.
+- "date" : une date ou un rendez-vous important, avec son horaire si précisé. Champs : label, datetime, relatedTo.
+- "deal_update" : un changement de valeur (montant) sur une offre en cours pour un client déjà identifié. Champs : client_name (le nom du client, ou null si l'échange ne permet pas de l'identifier avec certitude), old_value, new_value, reason.
+- "meeting" : une réunion tenue ou planifiée avec un client, mentionnée explicitement dans l'échange. Champs : client_name, meeting_date, notes, meeting_type.
+- "activity" : un événement notable concernant un client (signature d'un contrat, devis refusé, paiement reçu, nouveau lead, etc.). Champs : client_name, activity_type, amount, description.
+
+Règles importantes pour "client" :
+- Si l'un des champs email, phone, location, next_step, value, importance n'est PAS mentionné dans l'échange, mets-le explicitement à null dans le JSON — ne l'omets pas, et n'invente JAMAIS une valeur manquante.
+- Si le client correspond à un client déjà connu (liste fournie ci-dessous), reprends exactement le même nom pour qu'il puisse être relié à la bonne fiche plutôt que créé en double.
 
 Réponds UNIQUEMENT avec un tableau JSON valide, sans aucun texte ni bloc de code autour, au format exact :
-[{"fact_type": "client", "content": {"name": "...", "company": "...", "contact": "...", "meetingDate": "...", "notes": "..."}}]
+[{"fact_type": "client", "content": {"name": "...", "company": "...", "contact": "...", "email": null, "phone": null, "location": null, "next_step": null, "value": null, "importance": null, "meeting_date": "..."}}]
 
 Champs par type :
-- client : name, company, contact, meetingDate, notes
+- client : name, company, contact, email, phone, location, next_step, value, importance, meeting_date
 - goal : description, targetDate
 - task : description, dueDate
 - date : label, datetime, relatedTo
+- deal_update : client_name, old_value, new_value, reason
+- meeting : client_name, meeting_date, notes, meeting_type
+- activity : client_name, activity_type, amount, description
 
-Toutes les dates doivent être des timestamps ISO 8601 absolus, calculés à partir de la date actuelle fournie (jamais des expressions relatives comme "demain"). Omets les champs inconnus plutôt que d'inventer une valeur. Si l'échange ne contient aucun fait digne d'être mémorisé, réponds avec un tableau vide : []`
+Toutes les dates doivent être des timestamps ISO 8601 absolus, calculés à partir de la date actuelle fournie (jamais des expressions relatives comme "demain"). Pour "client", n'omets un champ que si le concept lui-même n'a pas de sens dans le contexte (par exemple pas de company pour un particulier) ; pour email/phone/location/next_step/value/importance, préfère toujours null explicite à l'omission. Si l'échange ne contient aucune information digne d'être mémorisée, réponds avec un tableau vide : []`
 
-const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date'])
+const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date', 'deal_update', 'meeting', 'activity'])
+
+// Compact "Karim Benali (Marjane Holding)" style list injected into the extraction prompt so
+// Claude can match a client mentioned by name to an existing record (for "client" updates and
+// for client_name on deal_update/meeting/activity) instead of only ever seeing new clients.
+function formatExistingClientsForPrompt(existingClients) {
+  if (!Array.isArray(existingClients) || existingClients.length === 0) return ''
+  const lines = existingClients
+    .slice(0, 50)
+    .map((c) => `- ${c.name}${c.company ? ` (${c.company})` : ''}`)
+  return `\n\nClients déjà connus (reprends exactement le même nom pour toute mise à jour ou référence) :\n${lines.join('\n')}`
+}
 
 // Silently analyzes one exchange and returns any new facts worth remembering.
 // Never throws to the caller for malformed model output — returns [] instead.
-export async function extractFacts(userContent, assistantContent, now = new Date()) {
+// existingClients (from getAllClients()) lets Claude recognize when the conversation refers to
+// a client already on file, instead of only ever being able to extract brand-new clients.
+export async function extractFacts(userContent, assistantContent, now = new Date(), existingClients = []) {
   const anthropic = getClient()
 
   const response = await anthropic.messages.create({
@@ -155,7 +179,7 @@ export async function extractFacts(userContent, assistantContent, now = new Date
     messages: [
       {
         role: 'user',
-        content: `Date et heure actuelles : ${now.toISOString()}\n\nMessage de Rachid : ${userContent}\n\nRéponse de l'assistant : ${assistantContent}`,
+        content: `Date et heure actuelles : ${now.toISOString()}${formatExistingClientsForPrompt(existingClients)}\n\nMessage de Rachid : ${userContent}\n\nRéponse de l'assistant : ${assistantContent}`,
       },
     ],
   })
