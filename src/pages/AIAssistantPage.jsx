@@ -121,8 +121,13 @@ export default function AIAssistantPage() {
     }
   }, [])
 
+  // Single source of truth for "is the attachment flow active right now?" — the client-name
+  // picker, and any requirement to fill it in, must ALWAYS gate on this and nothing else, so a
+  // normal text-only message never shows extra UI or has extra requirements.
+  const hasAttachment = Boolean(attachedFile)
+
   const attachSuggestions =
-    attachClientQuery.trim() && !attachClientId
+    hasAttachment && attachClientQuery.trim() && !attachClientId
       ? clients
           .filter((c) => c.name.toLowerCase().includes(attachClientQuery.trim().toLowerCase()))
           .slice(0, 5)
@@ -179,11 +184,13 @@ export default function AIAssistantPage() {
 
   async function sendMessage(rawText) {
     const trimmed = rawText.trim()
-    if ((!trimmed && !attachedFile) || isSending || isUploadingFile) return
+    if ((!trimmed && !hasAttachment) || isSending || isUploadingFile) return
 
     let content = trimmed
 
-    if (attachedFile) {
+    // Everything in this block — including requiring a client name — only ever runs when an
+    // attachment is actually present. A plain text message never touches this code path at all.
+    if (hasAttachment) {
       const clientName = attachClientQuery.trim()
       if (!clientName) {
         setAttachmentError('Indiquez le client concerné avant d\u2019envoyer.')
@@ -319,7 +326,9 @@ export default function AIAssistantPage() {
         </div>
 
         <div className="border-t border-ink-200 bg-white px-4 pb-3 pt-3 lg:pb-4">
-          {attachedFile && (
+          {/* Client-name picker: gated ONLY on hasAttachment — must never appear, and never
+              require anything, for a normal text-only message. */}
+          {hasAttachment && (
             <div className="mx-auto mb-2 flex max-w-[700px] flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-[12px] font-semibold text-ink-700">
                 {isUploadingFile ? (
@@ -404,7 +413,7 @@ export default function AIAssistantPage() {
             />
             <button
               type="submit"
-              disabled={(!draft.trim() && !attachedFile) || isSending || isUploadingFile}
+              disabled={(!draft.trim() && !hasAttachment) || isSending || isUploadingFile}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-500 text-white transition-transform active:scale-95 disabled:opacity-40"
               aria-label="Envoyer"
             >
