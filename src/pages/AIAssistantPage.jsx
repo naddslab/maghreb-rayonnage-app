@@ -3,7 +3,7 @@ import { Bot, Loader2, Paperclip, Send, Sparkles, X } from 'lucide-react'
 import Layout from '../components/Layout'
 import { currentUser } from '../data/mockData'
 import { apiUrl } from '../lib/api'
-import { fetchAllClients, createClient, uploadClientFile } from '../lib/clients'
+import { fetchAllClients, createClient, uploadClientFile, uploadGeneralFile } from '../lib/clients'
 
 const SUGGESTIONS = [
   'Résume mes clients prioritaires',
@@ -188,22 +188,25 @@ export default function AIAssistantPage() {
 
     let content = trimmed
 
-    // Everything in this block — including requiring a client name — only ever runs when an
-    // attachment is actually present. A plain text message never touches this code path at all.
+    // Everything in this block only ever runs when an attachment is actually present — a plain
+    // text message never touches this code path at all. The client name is optional: if left
+    // blank the file is uploaded as a "general" file (clientId = null) instead of blocking send.
     if (hasAttachment) {
       const clientName = attachClientQuery.trim()
-      if (!clientName) {
-        setAttachmentError('Indiquez le client concerné avant d\u2019envoyer.')
-        return
-      }
 
       setIsUploadingFile(true)
       setAttachmentError('')
       try {
-        const client = await resolveAttachmentClient(clientName)
-        await uploadClientFile(client.id, attachedFile)
-        const note = `[Fichier joint : ${attachedFile.name} pour ${client.name}]`
-        content = content ? `${content}\n\n${note}` : note
+        if (clientName) {
+          const client = await resolveAttachmentClient(clientName)
+          await uploadClientFile(client.id, attachedFile)
+          const note = `[Fichier joint : ${attachedFile.name} pour ${client.name}]`
+          content = content ? `${content}\n\n${note}` : note
+        } else {
+          await uploadGeneralFile(attachedFile)
+          const note = `[Fichier joint : ${attachedFile.name}]`
+          content = content ? `${content}\n\n${note}` : note
+        }
         clearAttachment()
       } catch (err) {
         setAttachmentError(err.message || "Échec de l'envoi du fichier.")
@@ -358,7 +361,7 @@ export default function AIAssistantPage() {
                     setAttachClientId(null)
                   }}
                   disabled={isUploadingFile}
-                  placeholder="Client concerné…"
+                  placeholder="Client concerné (optionnel)…"
                   className="input-field w-full py-1.5 text-[12px]"
                 />
                 {attachSuggestions.length > 0 && (

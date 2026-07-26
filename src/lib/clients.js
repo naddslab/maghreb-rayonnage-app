@@ -104,6 +104,18 @@ export async function uploadClientFile(clientId, file) {
   return request(`/api/clients/${clientId}/files`, { method: 'POST', body: formData })
 }
 
+// A file not tied to any client (e.g. a personal document attached in chat without specifying
+// who it's for) — same multipart upload, but hits /api/files instead of a :clientId-scoped route.
+export async function uploadGeneralFile(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request('/api/files', { method: 'POST', body: formData })
+}
+
+export async function fetchGeneralFiles() {
+  return request('/api/files/general')
+}
+
 export async function fetchFileUrl(fileId) {
   return request(`/api/files/${fileId}/url`)
 }

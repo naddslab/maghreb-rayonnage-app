@@ -386,6 +386,8 @@ function rowToFile(row) {
   }
 }
 
+// clientId may be null/undefined — a "general" file not tied to any client (e.g. a personal
+// document attached in chat without specifying who it's for).
 export async function createFile(clientId, filename, filePath, fileType, fileSize) {
   if (!filename || !String(filename).trim()) {
     throw new Error('Le nom du fichier est requis.')
@@ -393,20 +395,21 @@ export async function createFile(clientId, filename, filePath, fileType, fileSiz
   if (!filePath || !String(filePath).trim()) {
     throw new Error("Le chemin du fichier est requis.")
   }
+  const normalizedClientId = clientId === undefined || clientId === '' ? null : clientId
   const now = new Date().toISOString()
   try {
     const { rows } = await pool.query(
       `INSERT INTO files (client_id, filename, file_path, file_type, file_size, uploaded_at)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [clientId, filename, filePath, fileType ?? null, fileSize ?? null, now]
+      [normalizedClientId, filename, filePath, fileType ?? null, fileSize ?? null, now]
     )
     return rowToFile(rows[0])
   } catch (err) {
     if (err.code === '23503') {
       throw new Error(`Client introuvable (id ${clientId}) : impossible d'enregistrer le fichier.`)
     }
-    throw new Error(`Impossible d'enregistrer le fichier "${filename}" pour le client ${clientId} : ${err.message}`)
+    throw new Error(`Impossible d'enregistrer le fichier "${filename}" : ${err.message}`)
   }
 }
 
@@ -419,6 +422,21 @@ export async function getFilesByClientId(clientId) {
     return rows.map(rowToFile)
   } catch (err) {
     throw new Error(`Impossible de récupérer les fichiers du client ${clientId} : ${err.message}`)
+  }
+}
+
+// Files uploaded without a client attached — e.g. Rachid's own CV or a personal document
+// mentioned in chat without tying it to any client. Used to give the AI assistant visibility
+// into these alongside whichever client's files are relevant to the current message.
+export async function getGeneralFiles(limit = 20) {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM files WHERE client_id IS NULL ORDER BY uploaded_at DESC, id DESC LIMIT $1',
+      [limit]
+    )
+    return rows.map(rowToFile)
+  } catch (err) {
+    throw new Error(`Impossible de récupérer les fichiers généraux : ${err.message}`)
   }
 }
 
@@ -643,7 +661,7 @@ export async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS files (
       id SERIAL PRIMARY KEY,
-      client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
       filename TEXT NOT NULL,
       file_path TEXT NOT NULL,
       file_type TEXT,
@@ -667,6 +685,13 @@ export async function initDb() {
         ALTER TABLE files RENAME COLUMN created_at TO uploaded_at;
       END IF;
     END $$;
+  `)
+
+  // client_id used to be NOT NULL — files can now be "general" (not tied to any client, e.g. a
+  // personal CV attached in chat without specifying a client), so relax that constraint for any
+  // deployment whose table was created before this was allowed. A no-op if already nullable.
+  await pool.query(`
+    ALTER TABLE files ALTER COLUMN client_id DROP NOT NULL
   `)
 
   await pool.query(`

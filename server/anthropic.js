@@ -253,8 +253,11 @@ export function buildSystemPrompt(basePrompt = SYSTEM_PROMPT, facts = [], now = 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 const MAX_PDF_BYTES = 32 * 1024 * 1024
 
-// Turns client files (see server/index.js's loadClientFilesForPrompt) into Claude API content
-// blocks so the model can actually see the attachment, not just know it exists by name.
+// Turns files relevant to this turn — both client-linked files (see server/index.js's
+// loadClientFilesForPrompt) and general, non-client files (loadGeneralFilesForPrompt, e.g.
+// Rachid's own CV) — into Claude API content blocks so the model can actually see the
+// attachment, not just know it exists by name. This function itself doesn't care which bucket a
+// file came from; the caller is responsible for deciding what's relevant and merging both lists.
 // Each entry is expected to already carry `base64` (pre-fetched by the caller) — `url` is kept
 // as a fallback only, so this still degrades gracefully if a caller passes files un-fetched.
 // Never throws: any single file that's unsupported, unfetchable, or oversized is skipped with a
@@ -305,8 +308,9 @@ async function buildFileContentBlocks(clientFiles) {
 // businessContext (from Réglages) is woven into the latest user turn — not persisted to the
 // visible conversation — so the model has it as context without it being a rigid instruction.
 // clientFiles (optional): array of { filename, fileType, url, base64 } for files relevant to the
-// current conversation (see server/index.js) — attached to the last user message as image/
-// document content blocks so Claude can actually read them, not just know they exist.
+// current conversation (see server/index.js) — may mix client-linked files and general,
+// non-client files (e.g. a personal CV) — attached to the last user message as image/document
+// content blocks so Claude can actually read them, not just know they exist.
 export async function getAssistantReply(history, systemPrompt = SYSTEM_PROMPT, businessContext = '', clientFiles = []) {
   const anthropic = getClient()
 

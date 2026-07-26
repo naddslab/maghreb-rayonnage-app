@@ -27,6 +27,7 @@ import {
   createActivity,
   createFile,
   getFilesByClientId,
+  getGeneralFiles,
   getFileById,
   deleteFile,
   getAllFiles,
@@ -72,18 +73,10 @@ function findMentionedClient(clients, message) {
   return clients.find((c) => c.name && lower.includes(c.name.trim().toLowerCase())) || null
 }
 
-// Fetches the actual bytes for every image/PDF attached to a client so Claude can read them,
-// not just know they exist. Best-effort throughout: a file that fails to download or exceeds the
+// Fetches the actual bytes for every image/PDF in the given list so Claude can read them, not
+// just know they exist. Best-effort throughout: a file that fails to download or exceeds the
 // Claude API's size limits is skipped with a warning rather than failing the whole chat turn.
-async function loadClientFilesForPrompt(clientId) {
-  let files
-  try {
-    files = await getFilesByClientId(clientId)
-  } catch (err) {
-    console.warn('Impossible de récupérer les fichiers du client pour le contexte IA :', err.message)
-    return []
-  }
-
+async function filesToPromptAttachments(files) {
   const relevant = files.filter((f) => f.fileType?.startsWith('image/') || f.fileType === 'application/pdf')
   const results = []
 
@@ -113,6 +106,31 @@ async function loadClientFilesForPrompt(clientId) {
   }
 
   return results
+}
+
+async function loadClientFilesForPrompt(clientId) {
+  let files
+  try {
+    files = await getFilesByClientId(clientId)
+  } catch (err) {
+    console.warn('Impossible de récupérer les fichiers du client pour le contexte IA :', err.message)
+    return []
+  }
+  return filesToPromptAttachments(files)
+}
+
+// General files (no client attached, e.g. a personal CV) are few enough that we can just always
+// make them available to Claude every turn rather than trying to guess relevance from the
+// message text — capped at a handful so a large personal library doesn't blow up request size.
+async function loadGeneralFilesForPrompt(limit = 5) {
+  let files
+  try {
+    files = await getGeneralFiles(limit)
+  } catch (err) {
+    console.warn('Impossible de récupérer les fichiers généraux pour le contexte IA :', err.message)
+    return []
+  }
+  return filesToPromptAttachments(files)
 }
 
 // Splits what extractFacts() returns across the right destinations: "client" items create or
@@ -279,16 +297,20 @@ app.post('/api/chat', async (req, res) => {
 
     // If the message names a known client, pull their image/PDF files so Claude can actually
     // read them this turn (e.g. "que dit le contrat de Karim Benali ?") instead of only knowing
-    // they exist. Best-effort — never blocks the chat reply if this lookup fails.
+    // they exist. Also always include general (non-client) files — e.g. Rachid's own CV — so
+    // he can ask "what's in my CV" without tying the file to a client. Best-effort throughout —
+    // never blocks the chat reply if either lookup fails.
     let clientFiles = []
     try {
       const allClients = await getAllClients()
       const mentionedClient = findMentionedClient(allClients, content)
-      if (mentionedClient) {
-        clientFiles = await loadClientFilesForPrompt(mentionedClient.id)
-      }
+      const [mentionedClientFiles, generalFiles] = await Promise.all([
+        mentionedClient ? loadClientFilesForPrompt(mentionedClient.id) : Promise.resolve([]),
+        loadGeneralFilesForPrompt(),
+      ])
+      clientFiles = [...mentionedClientFiles, ...generalFiles]
     } catch (err) {
-      console.warn('Impossible de préparer les fichiers du client pour cette réponse :', err.message)
+      console.warn('Impossible de préparer les fichiers pour cette réponse :', err.message)
     }
 
     const rawReply = await getAssistantReply(history, systemPrompt, aiSettings?.business_context || '', clientFiles)
@@ -498,6 +520,30 @@ app.post('/api/clients/:clientId/files', upload.single('file'), async (req, res)
     console.error("Échec de l'envoi du fichier :", err)
     res.status(500).json({ error: err.message || "Échec de l'envoi du fichier." })
   }
+})
+
+// General file upload: not tied to any client (e.g. a personal document attached in chat
+// without specifying who it's for). Deliberately its own route rather than reusing
+// /api/clients/:clientId/files, since that route's :clientId param is validated by
+// app.param('clientId', ...) below and must resolve to a real client.
+app.post('/api/files', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "Aucun fichier reçu (champ 'file' manquant)." })
+  }
+
+  try {
+    const filePath = await uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype)
+    const file = await createFile(null, req.file.originalname, filePath, req.file.mimetype, req.file.size)
+    const url = await getFileUrl(filePath)
+    res.status(201).json({ ...file, url })
+  } catch (err) {
+    console.error("Échec de l'envoi du fichier :", err)
+    res.status(500).json({ error: err.message || "Échec de l'envoi du fichier." })
+  }
+})
+
+app.get('/api/files/general', async (req, res) => {
+  res.json(await getGeneralFiles())
 })
 
 app.get('/api/files', async (req, res) => {
