@@ -4,6 +4,42 @@ const MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS = 1024
 const EXTRACTION_MAX_TOKENS = 512
 
+// Rachid's businesses operate in Morocco — every date/time shown to him or reasoned about by
+// Claude must reflect this timezone regardless of where the Node process itself happens to run
+// (e.g. Fly.io's "iad" region, which is US East / effectively UTC on a bare container).
+const TIMEZONE = 'Africa/Casablanca'
+
+// Returns the UTC offset (e.g. "+01:00", "+00:00") actually in effect for `date` in `timeZone`.
+// Computed via Intl rather than hardcoded because Morocco's offset has changed historically and
+// still shifts temporarily during Ramadan — this stays correct without needing updates here.
+function getUtcOffset(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'shortOffset' }).formatToParts(date)
+  const raw = parts.find((p) => p.type === 'timeZoneName')?.value || 'GMT+0'
+  const match = raw.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/)
+  if (!match) return '+00:00'
+  const [, sign, hours, minutes = '00'] = match
+  return `${sign}${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`
+}
+
+// Formats `date` as an ISO 8601 string reflecting its wall-clock time in `timeZone`, with that
+// zone's real offset attached (e.g. "2026-07-26T23:10:00+01:00") — unlike date.toISOString(),
+// which is always UTC. Passing this to Claude means it never has to do UTC math in its head to
+// resolve "demain" / "la semaine prochaine": the reference instant already reads as Morocco does.
+function toIsoWithTimeZone(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const get = (type) => parts.find((p) => p.type === type)?.value
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}${getUtcOffset(date, timeZone)}`
+}
+
 export const SYSTEM_PROMPT =
   "Tu es l'assistant IA de Rachid, qui dirige trois entreprises de rayonnage industriel au Maroc. Tu l'aides à suivre ses clients, ses rendez-vous, et ses priorités commerciales. Réponds toujours en français, de manière naturelle et concise, sans formatage stylisé. Utilise une conversation simple et directe. Raisonnez à partir des principes fondamentaux : décomposez chaque problème en ses éléments essentiels avant de répondre. Privilégiez la précision et l'objectivité à la politesse. Apportez des réponses directes et substantielles, sans préambule, sans reformulation de ma question ni remplissage inutile. Luttez contre vos propres biais : ne cherchez pas à me plaire, n'abusez pas des nuances pour éviter les conflits et ne flattez pas. Si je me trompe ou si mon raisonnement est erroné, dites-le clairement. Si une position est défendable mais minoritaire ou inconfortable, exposez-la tout de même. Je privilégie la rigueur intellectuelle à l'agrément : concentrez-vous sur ce qui est vrai et utile, et non sur ce qui est confortable. Remettez en question mes hypothèses lorsque cela se justifie. Si une question est mal formulée ou repose sur une prémisse erronée, rectifiez cette prémisse avant de répondre plutôt que de répondre à côté du sujet. Pour tout problème concret, concluez par des mesures spécifiques et applicables : quoi faire, dans quel ordre et comment mesurer le succès. Évitez les conseils génériques. Lorsque vous énoncez quelque chose d'incertain, indiquez votre degré de confiance ainsi que les éléments susceptibles de le modifier. N'utilisez jamais la structure rhétorique « ce n'est pas X, c'est Y » ou « X n'est pas X, mais Y ». Évitez de définir les choses par contraste ; énoncez-les directement."
 
@@ -58,12 +94,20 @@ export function stripMarkdown(text) {
 
 // Formats a stored ISO timestamp as a localized French date/time so the model reasons
 // about it the same way it reasons about "now" — never as a raw UTC string it could misread.
+// Explicitly pinned to Africa/Casablanca so this always reads as Morocco local time, regardless
+// of the server process's own timezone.
 function formatIsoForPrompt(value) {
   if (!value) return ''
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return value
-  const datePart = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const timePart = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  const datePart = d.toLocaleDateString('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: TIMEZONE,
+  })
+  const timePart = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: TIMEZONE })
   return `${datePart} à ${timePart}`
 }
 
@@ -87,14 +131,23 @@ function formatFactLine(fact) {
 // Réglages, falling back to the built-in default), an absolute reference to "now" so
 // relative dates ("demain", "la semaine prochaine") can be resolved, and a compact summary
 // of everything learned so far from the knowledge base.
+// dateStr/timeStr are pinned to Africa/Casablanca — the server may run in any timezone (Fly.io's
+// "iad" region is effectively UTC), but Rachid's business, and every date shown to him, is Morocco time.
 export function buildSystemPrompt(basePrompt = SYSTEM_PROMPT, facts = [], now = new Date()) {
-  const dateStr = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  const dateStr = now.toLocaleDateString('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: TIMEZONE,
+  })
+  const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: TIMEZONE })
 
   let prompt =
     `${basePrompt || SYSTEM_PROMPT}\n\n` +
-    `Nous sommes actuellement le ${dateStr}, il est ${timeStr}. Utilise cette date comme référence absolue pour ` +
-    `interpréter toute expression relative ("demain", "la semaine prochaine", "dans 3 jours"...).`
+    `Nous sommes actuellement le ${dateStr}, il est ${timeStr} (heure du Maroc, Africa/Casablanca). Utilise cette ` +
+    `date comme référence absolue pour interpréter toute expression relative ("demain", "la semaine prochaine", ` +
+    `"dans 3 jours"...).`
 
   const grouped = { client: [], goal: [], task: [], date: [] }
   facts.forEach((f) => {
@@ -237,7 +290,7 @@ Champs par type :
 - activity : client_name, activity_type, amount, description
 - delete_client : client_name
 
-Toutes les dates doivent être des timestamps ISO 8601 absolus, calculés à partir de la date actuelle fournie (jamais des expressions relatives comme "demain"). Pour "client", n'omets un champ que si le concept lui-même n'a pas de sens dans le contexte (par exemple pas de company pour un particulier) ; pour email/phone/location/next_step/value/importance/vault, préfère toujours null explicite à l'omission. Si l'échange ne contient aucune information digne d'être mémorisée, réponds avec un tableau vide : []`
+Toutes les dates doivent être des timestamps ISO 8601 absolus, calculés à partir de la date actuelle fournie (jamais des expressions relatives comme "demain"). La date et l'heure actuelles fournies ci-dessous sont exprimées en heure du Maroc (Africa/Casablanca), décalage horaire inclus (ex. "2026-07-26T23:10:00+01:00") : calcule toute expression relative directement par rapport à cette heure locale, puis renvoie les timestamps avec ce même décalage horaire — ne les convertis JAMAIS en UTC ("Z"), car cela décalerait la date locale d'un jour selon l'heure de la journée. Pour "client", n'omets un champ que si le concept lui-même n'a pas de sens dans le contexte (par exemple pas de company pour un particulier) ; pour email/phone/location/next_step/value/importance/vault, préfère toujours null explicite à l'omission. Si l'échange ne contient aucune information digne d'être mémorisée, réponds avec un tableau vide : []`
 
 const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date', 'deal_update', 'meeting', 'activity', 'delete_client'])
 
@@ -259,6 +312,12 @@ function formatExistingClientsForPrompt(existingClients) {
 export async function extractFacts(userContent, assistantContent, now = new Date(), existingClients = []) {
   const anthropic = getClient()
 
+  // now.toISOString() would give the UTC instant — correct, but it forces Claude to convert to
+  // Morocco time in its head before resolving "demain"/"la semaine prochaine", which is exactly
+  // the kind of silent off-by-one-day mistake this fixes. Passing the Casablanca-local wall-clock
+  // time (with its real offset attached) means Claude reasons in Rachid's timezone directly.
+  const nowLocal = toIsoWithTimeZone(now, TIMEZONE)
+
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: EXTRACTION_MAX_TOKENS,
@@ -266,7 +325,7 @@ export async function extractFacts(userContent, assistantContent, now = new Date
     messages: [
       {
         role: 'user',
-        content: `Date et heure actuelles : ${now.toISOString()}${formatExistingClientsForPrompt(existingClients)}\n\nMessage de Rachid : ${userContent}\n\nRéponse de l'assistant : ${assistantContent}`,
+        content: `Date et heure actuelles (heure du Maroc, Africa/Casablanca) : ${nowLocal}${formatExistingClientsForPrompt(existingClients)}\n\nMessage de Rachid : ${userContent}\n\nRéponse de l'assistant : ${assistantContent}`,
       },
     ],
   })
