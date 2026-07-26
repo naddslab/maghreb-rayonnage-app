@@ -358,7 +358,9 @@ function rowToFile(row) {
     filePath: row.file_path,
     fileType: row.file_type,
     fileSize: row.file_size === null ? null : Number(row.file_size),
-    createdAt: row.created_at,
+    // The files table's timestamp column is named "uploaded_at" (unlike every other table here,
+    // which uses "created_at") — keep the JS-facing field name createdAt for API consistency.
+    createdAt: row.uploaded_at,
   }
 }
 
@@ -372,7 +374,7 @@ export async function createFile(clientId, filename, filePath, fileType, fileSiz
   const now = new Date().toISOString()
   try {
     const { rows } = await pool.query(
-      `INSERT INTO files (client_id, filename, file_path, file_type, file_size, created_at)
+      `INSERT INTO files (client_id, filename, file_path, file_type, file_size, uploaded_at)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
       [clientId, filename, filePath, fileType ?? null, fileSize ?? null, now]
@@ -389,7 +391,7 @@ export async function createFile(clientId, filename, filePath, fileType, fileSiz
 export async function getFilesByClientId(clientId) {
   try {
     const { rows } = await pool.query(
-      'SELECT * FROM files WHERE client_id = $1 ORDER BY created_at DESC, id DESC',
+      'SELECT * FROM files WHERE client_id = $1 ORDER BY uploaded_at DESC, id DESC',
       [clientId]
     )
     return rows.map(rowToFile)
@@ -418,7 +420,7 @@ export async function deleteFile(fileId) {
 
 export async function getAllFiles() {
   try {
-    const { rows } = await pool.query('SELECT * FROM files ORDER BY created_at DESC, id DESC')
+    const { rows } = await pool.query('SELECT * FROM files ORDER BY uploaded_at DESC, id DESC')
     return rows.map(rowToFile)
   } catch (err) {
     throw new Error(`Impossible de récupérer la liste des fichiers : ${err.message}`)
@@ -624,8 +626,25 @@ export async function initDb() {
       file_path TEXT NOT NULL,
       file_type TEXT,
       file_size INTEGER,
-      created_at TEXT NOT NULL
+      uploaded_at TEXT NOT NULL
     )
+  `)
+
+  // Unlike every other table here, files' timestamp column is named "uploaded_at" — some
+  // environments' tables were created before that naming was settled on. CREATE TABLE IF NOT
+  // EXISTS above is a no-op once the table already exists, so rename the old column in place
+  // for any deployment that still has it.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns WHERE table_name = 'files' AND column_name = 'created_at'
+      ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns WHERE table_name = 'files' AND column_name = 'uploaded_at'
+      ) THEN
+        ALTER TABLE files RENAME COLUMN created_at TO uploaded_at;
+      END IF;
+    END $$;
   `)
 
   await pool.query(`
