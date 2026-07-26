@@ -8,7 +8,33 @@ import ClientsTable from '../components/ClientsTable'
 import CircularGauge from '../components/CircularGauge'
 import PromoCard from '../components/PromoCard'
 import { companies, getCompany, formatDH, formatCompactDH } from '../data/mockData'
-import { fetchAllClients, fetchMeetings } from '../lib/clients'
+import {
+  fetchAllClients,
+  fetchMeetings,
+  fetchVaultRevenueChart,
+  fetchVaultMonthlyRevenue,
+  fetchMonthlyGoal,
+  getCurrentMoroccoMonth,
+} from '../lib/clients'
+
+// /api/vaults/:id/revenue/chart returns [{ month: 'YYYY-MM', label: 'Jan', revenue }, ...] —
+// RevenueChart expects [{ month: <label to display>, value, isBest }].
+function toRevenueChartSeries(apiData) {
+  if (!Array.isArray(apiData) || apiData.length === 0) return []
+  const values = apiData.map((d) => d.revenue)
+  const bestIndex = values.indexOf(Math.max(...values))
+  return apiData.map((d, i) => ({ month: d.label, value: d.revenue, isBest: i === bestIndex }))
+}
+
+// Derived as the month-over-month change between the two most recent months in the chart, same
+// as on the main Dashboard — the API itself doesn't return a single "trend" figure.
+function computeMonthOverMonthTrend(apiData) {
+  if (!Array.isArray(apiData) || apiData.length < 2) return 0
+  const current = apiData[apiData.length - 1].revenue
+  const previous = apiData[apiData.length - 2].revenue
+  if (previous === 0) return current > 0 ? 100 : 0
+  return Math.round(((current - previous) / Math.abs(previous)) * 100)
+}
 
 const importanceOrder = { XXX: 3, XX: 2, X: 1 }
 
@@ -43,6 +69,12 @@ export default function Vault() {
   const [reunionsTenues, setReunionsTenues] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [revenueChart, setRevenueChart] = useState([])
+  const [monthlyTarget, setMonthlyTarget] = useState(0)
+  const [monthlyActual, setMonthlyActual] = useState(0)
+  const [statsError, setStatsError] = useState('')
+
+  const currentMonth = useMemo(() => getCurrentMoroccoMonth(), [])
 
   useEffect(() => {
     if (!company) return
@@ -71,11 +103,34 @@ export default function Vault() {
       }
     }
 
+    // The monthly goal (monthly_goals table) is shared across the whole group, not per vault —
+    // there's no per-vault target yet, so every vault page shows the same company-wide objective
+    // alongside its own vault-scoped revenue chart/actual.
+    async function loadStats() {
+      setStatsError('')
+      try {
+        const [chart, goal, actual] = await Promise.all([
+          fetchVaultRevenueChart(company.id, 12),
+          fetchMonthlyGoal(currentMonth),
+          fetchVaultMonthlyRevenue(company.id, currentMonth),
+        ])
+        if (cancelled) return
+        setRevenueChart(chart)
+        setMonthlyTarget(goal?.targetValue || 0)
+        setMonthlyActual(actual?.revenue || 0)
+      } catch (err) {
+        if (!cancelled) {
+          setStatsError(err.message || "Impossible de charger le chiffre d'affaires et l'objectif du mois.")
+        }
+      }
+    }
+
     load()
+    loadStats()
     return () => {
       cancelled = true
     }
-  }, [company])
+  }, [company, currentMonth])
 
   const rows = useMemo(
     () =>
@@ -92,6 +147,10 @@ export default function Vault() {
   const clientsSignes = clients.filter(isSignedClient).length
   const chiffreAffaires = clients.reduce((sum, c) => sum + (c.value || 0), 0)
   const comptesStrategiques = clients.filter((c) => c.importance === 'XXX').length
+
+  const chartSeries = useMemo(() => toRevenueChartSeries(revenueChart), [revenueChart])
+  const chartTrend = useMemo(() => computeMonthOverMonthTrend(revenueChart), [revenueChart])
+  const objectifPct = monthlyTarget > 0 ? Math.min(100, Math.round((monthlyActual / monthlyTarget) * 100)) : 0
 
   return (
     <Layout title={company.name} subtitle={company.sector}>
@@ -158,12 +217,18 @@ export default function Vault() {
             />
           </div>
 
+          {statsError && (
+            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[12.5px] font-semibold text-rose-600">
+              {statsError}
+            </div>
+          )}
+
           <div className="mt-3 grid grid-cols-1 gap-3.5 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <RevenueChart
                 title={`Croissance du CA \u00b7 ${company.name}`}
-                data={company.revenue}
-                trend={company.stats.chiffreAffairesTrend}
+                data={chartSeries}
+                trend={chartTrend}
               />
             </div>
             <div className="card flex flex-col items-center justify-center gap-1 p-6">
@@ -172,9 +237,9 @@ export default function Vault() {
                 <Target size={14} className="text-accent-500" />
               </div>
               <CircularGauge
-                pct={company.stats.objectifPct}
+                pct={objectifPct}
                 label="Objectif atteint"
-                sublabel={`${formatDH(company.stats.objectifActuel)} / ${formatDH(company.stats.objectifCible)}`}
+                sublabel={`${formatDH(monthlyActual)} / ${formatDH(monthlyTarget)}`}
               />
             </div>
           </div>

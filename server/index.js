@@ -22,6 +22,8 @@ import {
   createDealHistory,
   getMonthlyRevenue,
   getRevenueByMonth,
+  getMonthlyRevenueForVault,
+  getRevenueByMonthForVault,
   getMonthlyGoal,
   setMonthlyGoal,
   getCurrentCasablancaMonth,
@@ -541,6 +543,29 @@ app.put('/api/goals/:month', async (req, res) => {
   }
   const result = await setMonthlyGoal(month, targetValue)
   res.json(result)
+})
+
+app.get('/api/vaults/:vaultId/revenue/monthly', async (req, res) => {
+  const { vaultId } = req.params
+  if (!VALID_VAULT_IDS.has(vaultId)) {
+    return res.status(400).json({ error: `vaultId doit être l'un de : ${[...VALID_VAULT_IDS].join(', ')}.` })
+  }
+  const month = typeof req.query.month === 'string' ? req.query.month : ''
+  if (!MONTH_FORMAT_RE.test(month)) {
+    return res.status(400).json({ error: 'Paramètre "month" invalide ou manquant (attendu "YYYY-MM").' })
+  }
+  const revenue = await getMonthlyRevenueForVault(vaultId, month)
+  res.json({ vaultId, month, revenue })
+})
+
+app.get('/api/vaults/:vaultId/revenue/chart', async (req, res) => {
+  const { vaultId } = req.params
+  if (!VALID_VAULT_IDS.has(vaultId)) {
+    return res.status(400).json({ error: `vaultId doit être l'un de : ${[...VALID_VAULT_IDS].join(', ')}.` })
+  }
+  const monthsBack = Number(req.query.monthsBack)
+  const data = await getRevenueByMonthForVault(vaultId, Number.isInteger(monthsBack) && monthsBack > 0 ? monthsBack : 12)
+  res.json(data)
 })
 
 // ---------- Meetings ----------

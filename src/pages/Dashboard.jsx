@@ -7,7 +7,15 @@ import RevenueChart from '../components/RevenueChart'
 import CircularGauge from '../components/CircularGauge'
 import PromoCard from '../components/PromoCard'
 import { companies, formatCompactDH, formatDH } from '../data/mockData'
-import { fetchAllClients, fetchMeetings, fetchActivities } from '../lib/clients'
+import {
+  fetchAllClients,
+  fetchMeetings,
+  fetchActivities,
+  fetchRevenueChart,
+  fetchMonthlyRevenue,
+  fetchMonthlyGoal,
+  getCurrentMoroccoMonth,
+} from '../lib/clients'
 
 const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
 
@@ -36,13 +44,38 @@ function activityDotType(activityType) {
   return 'neutral'
 }
 
+// /api/revenue/chart returns [{ month: 'YYYY-MM', label: 'Jan', revenue }, ...] — RevenueChart
+// expects [{ month: <label to display>, value, isBest }], with isBest marking the highest month.
+function toRevenueChartSeries(apiData) {
+  if (!Array.isArray(apiData) || apiData.length === 0) return []
+  const values = apiData.map((d) => d.revenue)
+  const bestIndex = values.indexOf(Math.max(...values))
+  return apiData.map((d, i) => ({ month: d.label, value: d.revenue, isBest: i === bestIndex }))
+}
+
+// No single "trend" figure comes back from the API, so it's derived here as the month-over-month
+// change between the two most recent months in the chart — consistent with what the badge next
+// to the chart is meant to convey ("is this month up or down from last month").
+function computeMonthOverMonthTrend(apiData) {
+  if (!Array.isArray(apiData) || apiData.length < 2) return 0
+  const current = apiData[apiData.length - 1].revenue
+  const previous = apiData[apiData.length - 2].revenue
+  if (previous === 0) return current > 0 ? 100 : 0
+  return Math.round(((current - previous) / Math.abs(previous)) * 100)
+}
+
 export default function Dashboard() {
-  const main = companies[0]
   const [clients, setClients] = useState([])
   const [meetings, setMeetings] = useState([])
   const [activities, setActivities] = useState([])
+  const [revenueChart, setRevenueChart] = useState([])
+  const [monthlyTarget, setMonthlyTarget] = useState(0)
+  const [monthlyActual, setMonthlyActual] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [statsError, setStatsError] = useState('')
+
+  const currentMonth = useMemo(() => getCurrentMoroccoMonth(), [])
 
   useEffect(() => {
     let cancelled = false
@@ -72,11 +105,33 @@ export default function Dashboard() {
       }
     }
 
+    // Kept independent from the clients/meetings/activities load above: a failure here (or there)
+    // shouldn't block the other from rendering — the chart/gauge just falls back to 0 and shows
+    // its own inline error instead of blanking the whole dashboard.
+    async function loadStats() {
+      try {
+        const [chart, goal, actual] = await Promise.all([
+          fetchRevenueChart(12),
+          fetchMonthlyGoal(currentMonth),
+          fetchMonthlyRevenue(currentMonth),
+        ])
+        if (cancelled) return
+        setRevenueChart(chart)
+        setMonthlyTarget(goal?.targetValue || 0)
+        setMonthlyActual(actual?.revenue || 0)
+      } catch (err) {
+        if (!cancelled) {
+          setStatsError(err.message || "Impossible de charger le chiffre d'affaires et l'objectif du mois.")
+        }
+      }
+    }
+
     load()
+    loadStats()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [currentMonth])
 
   const now = useMemo(() => new Date(), [])
 
@@ -103,6 +158,10 @@ export default function Dashboard() {
         .slice(0, 6),
     [activities]
   )
+
+  const chartSeries = useMemo(() => toRevenueChartSeries(revenueChart), [revenueChart])
+  const chartTrend = useMemo(() => computeMonthOverMonthTrend(revenueChart), [revenueChart])
+  const objectifPct = monthlyTarget > 0 ? Math.min(100, Math.round((monthlyActual / monthlyTarget) * 100)) : 0
 
   return (
     <Layout
@@ -139,9 +198,15 @@ export default function Dashboard() {
             />
           </div>
 
+          {statsError && (
+            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[12.5px] font-semibold text-rose-600">
+              {statsError}
+            </div>
+          )}
+
           <div className="mt-3 grid grid-cols-1 gap-3.5 lg:grid-cols-3">
             <div className="lg:col-span-2">
-              <RevenueChart data={main.revenue} trend={main.stats.chiffreAffairesTrend} />
+              <RevenueChart data={chartSeries} trend={chartTrend} />
             </div>
 
             <div className="card flex flex-col items-center justify-center gap-1 p-6">
@@ -149,7 +214,7 @@ export default function Dashboard() {
                 <h3 className="text-[12.5px] font-extrabold uppercase tracking-wide text-ink-400">Objectif mensuel</h3>
                 <Target size={14} className="text-accent-500" />
               </div>
-              <CircularGauge pct={main.stats.objectifPct} label="Objectif atteint" sublabel={`${formatDH(main.stats.objectifActuel)} / ${formatDH(main.stats.objectifCible)}`} />
+              <CircularGauge pct={objectifPct} label="Objectif atteint" sublabel={`${formatDH(monthlyActual)} / ${formatDH(monthlyTarget)}`} />
             </div>
           </div>
 

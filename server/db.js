@@ -342,6 +342,44 @@ export async function getRevenueByMonth(monthsBack = 12) {
   }))
 }
 
+// Same as getMonthlyRevenue(), but scoped to clients belonging to one vault — powers each
+// vault's own "Croissance du CA" chart without pulling every client's deal_history into JS first.
+export async function getMonthlyRevenueForVault(vaultId, month) {
+  assertMonthFormat(month)
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(SUM(COALESCE(dh.new_value, 0) - COALESCE(dh.old_value, 0)), 0) AS revenue
+       FROM deal_history dh
+       JOIN clients c ON c.id = dh.client_id
+       WHERE c.vault_id = $1
+         AND to_char(dh.created_at::timestamptz AT TIME ZONE '${REVENUE_TIMEZONE}', 'YYYY-MM') = $2`,
+      [vaultId, month]
+    )
+    return Number(rows[0]?.revenue ?? 0)
+  } catch (err) {
+    throw new Error(`Impossible de calculer le chiffre d'affaires du coffre "${vaultId}" pour ${month} : ${err.message}`)
+  }
+}
+
+export async function getRevenueByMonthForVault(vaultId, monthsBack = 12) {
+  const count = Number.isInteger(monthsBack) && monthsBack > 0 ? monthsBack : 12
+  const { year, month } = currentCasablancaYearMonth()
+
+  const months = []
+  for (let i = count - 1; i >= 0; i--) {
+    const shifted = shiftYearMonth(year, month, -i)
+    months.push({ ...shifted, key: yearMonthToKey(shifted.year, shifted.month) })
+  }
+
+  const revenues = await Promise.all(months.map((m) => getMonthlyRevenueForVault(vaultId, m.key)))
+
+  return months.map((m, i) => ({
+    month: m.key,
+    label: MONTH_LABELS_FR[m.month - 1],
+    revenue: revenues[i],
+  }))
+}
+
 export async function getMonthlyGoal(month) {
   assertMonthFormat(month)
   try {

@@ -127,3 +127,42 @@ export async function deleteFile(fileId) {
 export async function fetchAllFiles() {
   return request('/api/files')
 }
+
+// ---------- Revenue & goals ----------
+
+// The current calendar month as reckoned in Morocco (Africa/Casablanca), regardless of the
+// visitor's own device timezone — matches how the backend buckets revenue by month.
+export function getCurrentMoroccoMonth() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Casablanca',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date())
+  const year = parts.find((p) => p.type === 'year')?.value
+  const month = parts.find((p) => p.type === 'month')?.value
+  return `${year}-${month}`
+}
+
+export async function fetchRevenueChart(monthsBack = 12) {
+  return request(`/api/revenue/chart?monthsBack=${encodeURIComponent(monthsBack)}`)
+}
+
+export async function fetchMonthlyRevenue(month) {
+  return request(`/api/revenue/monthly?month=${encodeURIComponent(month)}`)
+}
+
+export async function fetchVaultRevenueChart(vaultId, monthsBack = 12) {
+  return request(`/api/vaults/${encodeURIComponent(vaultId)}/revenue/chart?monthsBack=${encodeURIComponent(monthsBack)}`)
+}
+
+export async function fetchVaultMonthlyRevenue(vaultId, month) {
+  return request(`/api/vaults/${encodeURIComponent(vaultId)}/revenue/monthly?month=${encodeURIComponent(month)}`)
+}
+
+export async function fetchMonthlyGoal(month) {
+  return request(`/api/goals/${encodeURIComponent(month)}`)
+}
+
+export async function saveMonthlyGoal(month, targetValue) {
+  return putJson(`/api/goals/${encodeURIComponent(month)}`, { targetValue })
+}
