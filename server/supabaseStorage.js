@@ -1,6 +1,7 @@
 // Aliased to avoid clashing with the unrelated createClient() exported from db.js (creates a
 // row in the `clients` table) that server/index.js also imports.
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import WebSocket from 'ws'
 
 const BUCKET = 'client-files'
 
@@ -13,9 +14,16 @@ function getSupabase() {
     )
   }
   if (!supabase) {
-    // The service role key bypasses Row Level Security — safe here because this only runs on
-    // the backend, never sent to the browser.
-    supabase = createSupabaseClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+    // We only ever use `.storage` here, never Realtime — but supabase-js unconditionally
+    // constructs a RealtimeClient in its own constructor. On Node < 22 (no native WebSocket
+    // global, e.g. the node:18-alpine image this API deploys with) that constructor throws
+    // "Node.js detected but native WebSocket not found" unless a `transport` is supplied,
+    // which would otherwise break every Storage call (upload/getUrl/delete) in production.
+    // Passing the `ws` package here satisfies that requirement; the transport itself is never
+    // actually opened since we never call `.channel()`/`.connect()`.
+    supabase = createSupabaseClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+      realtime: { transport: WebSocket },
+    })
   }
   return supabase
 }
