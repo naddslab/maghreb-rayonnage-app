@@ -116,10 +116,65 @@ export function buildSystemPrompt(basePrompt = SYSTEM_PROMPT, facts = [], now = 
   return prompt
 }
 
+// Claude API limits: ~5MB per base64-encoded image, and 32MB / 100 pages per PDF document.
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const MAX_PDF_BYTES = 32 * 1024 * 1024
+
+// Turns client files (see server/index.js's loadClientFilesForPrompt) into Claude API content
+// blocks so the model can actually see the attachment, not just know it exists by name.
+// Each entry is expected to already carry `base64` (pre-fetched by the caller) — `url` is kept
+// as a fallback only, so this still degrades gracefully if a caller passes files un-fetched.
+// Never throws: any single file that's unsupported, unfetchable, or oversized is skipped with a
+// warning so one bad attachment can't break the whole chat turn.
+async function buildFileContentBlocks(clientFiles) {
+  const blocks = []
+
+  for (const file of clientFiles) {
+    if (!file?.fileType) continue
+    const isImage = file.fileType.startsWith('image/')
+    const isPdf = file.fileType === 'application/pdf'
+    if (!isImage && !isPdf) continue
+
+    let base64 = file.base64
+    if (!base64 && file.url) {
+      try {
+        const response = await fetch(file.url)
+        if (!response.ok) {
+          console.warn(`Téléchargement du fichier "${file.filename}" échoué (HTTP ${response.status}), ignoré.`)
+          continue
+        }
+        base64 = Buffer.from(await response.arrayBuffer()).toString('base64')
+      } catch (err) {
+        console.warn(`Impossible de récupérer le fichier "${file.filename}" pour le prompt, ignoré :`, err.message)
+        continue
+      }
+    }
+    if (!base64) continue
+
+    const approxBytes = Math.ceil((base64.length * 3) / 4)
+    const limit = isImage ? MAX_IMAGE_BYTES : MAX_PDF_BYTES
+    if (approxBytes > limit) {
+      console.warn(`Fichier "${file.filename}" ignoré dans le prompt : dépasse la limite de taille autorisée par l'API Claude.`)
+      continue
+    }
+
+    blocks.push(
+      isImage
+        ? { type: 'image', source: { type: 'base64', media_type: file.fileType, data: base64 } }
+        : { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
+    )
+  }
+
+  return blocks
+}
+
 // history: array of { role: 'user' | 'assistant', content: string }, oldest first.
 // businessContext (from Réglages) is woven into the latest user turn — not persisted to the
 // visible conversation — so the model has it as context without it being a rigid instruction.
-export async function getAssistantReply(history, systemPrompt = SYSTEM_PROMPT, businessContext = '') {
+// clientFiles (optional): array of { filename, fileType, url, base64 } for files relevant to the
+// current conversation (see server/index.js) — attached to the last user message as image/
+// document content blocks so Claude can actually read them, not just know they exist.
+export async function getAssistantReply(history, systemPrompt = SYSTEM_PROMPT, businessContext = '', clientFiles = []) {
   const anthropic = getClient()
 
   const messages = history.map((m) => ({ role: m.role, content: m.content }))
@@ -128,6 +183,13 @@ export async function getAssistantReply(history, systemPrompt = SYSTEM_PROMPT, b
     lastMessage.content =
       `[Contexte métier interne, à utiliser si pertinent — ne pas le citer mot pour mot] :\n${businessContext}\n\n---\n\n` +
       lastMessage.content
+  }
+
+  if (Array.isArray(clientFiles) && clientFiles.length > 0 && lastMessage?.role === 'user') {
+    const fileBlocks = await buildFileContentBlocks(clientFiles)
+    if (fileBlocks.length > 0) {
+      lastMessage.content = [...fileBlocks, { type: 'text', text: lastMessage.content }]
+    }
   }
 
   const response = await anthropic.messages.create({

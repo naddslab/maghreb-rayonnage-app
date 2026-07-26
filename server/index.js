@@ -60,6 +60,60 @@ function findClientByName(clients, name) {
   return clients.find((c) => c.name && c.name.trim().toLowerCase() === normalized) || null
 }
 
+// Claude API limits: ~5MB per base64-encoded image, and 32MB / 100 pages per PDF document.
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const MAX_PDF_BYTES = 32 * 1024 * 1024
+
+// Simple case-insensitive substring match: does the user's message mention this client by name?
+// Good enough for "what's up with Karim Benali" without needing a separate extraction call.
+function findMentionedClient(clients, message) {
+  const lower = message.toLowerCase()
+  return clients.find((c) => c.name && lower.includes(c.name.trim().toLowerCase())) || null
+}
+
+// Fetches the actual bytes for every image/PDF attached to a client so Claude can read them,
+// not just know they exist. Best-effort throughout: a file that fails to download or exceeds the
+// Claude API's size limits is skipped with a warning rather than failing the whole chat turn.
+async function loadClientFilesForPrompt(clientId) {
+  let files
+  try {
+    files = await getFilesByClientId(clientId)
+  } catch (err) {
+    console.warn('Impossible de récupérer les fichiers du client pour le contexte IA :', err.message)
+    return []
+  }
+
+  const relevant = files.filter((f) => f.fileType?.startsWith('image/') || f.fileType === 'application/pdf')
+  const results = []
+
+  for (const file of relevant) {
+    try {
+      const url = await getFileUrl(file.filePath)
+      const response = await fetch(url)
+      if (!response.ok) {
+        console.warn(`Téléchargement du fichier "${file.filename}" échoué (HTTP ${response.status}), ignoré.`)
+        continue
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer())
+      const isImage = file.fileType.startsWith('image/')
+      const limit = isImage ? MAX_IMAGE_BYTES : MAX_PDF_BYTES
+      if (buffer.length > limit) {
+        console.warn(
+          `Fichier "${file.filename}" ignoré : ${buffer.length} octets dépasse la limite de ${limit} octets pour ce type.`
+        )
+        continue
+      }
+
+      results.push({ filename: file.filename, fileType: file.fileType, base64: buffer.toString('base64') })
+    } catch (err) {
+      console.warn(`Impossible de charger le fichier "${file.filename}" pour le contexte IA, ignoré :`, err.message)
+    }
+  }
+
+  return results
+}
+
 // Splits what extractFacts() returns across the right destinations: "client" items create or
 // update a row in the clients table, "deal_update"/"meeting"/"activity" attach to whichever
 // existing (or just-created) client they name, and "goal"/"task"/"date" still go to the generic
@@ -215,7 +269,22 @@ app.post('/api/chat', async (req, res) => {
     const aiSettings = await getAiSettings()
     const facts = await getAllFacts()
     const systemPrompt = buildSystemPrompt(aiSettings?.system_prompt || SYSTEM_PROMPT, facts, now)
-    const rawReply = await getAssistantReply(history, systemPrompt, aiSettings?.business_context || '')
+
+    // If the message names a known client, pull their image/PDF files so Claude can actually
+    // read them this turn (e.g. "que dit le contrat de Karim Benali ?") instead of only knowing
+    // they exist. Best-effort — never blocks the chat reply if this lookup fails.
+    let clientFiles = []
+    try {
+      const allClients = await getAllClients()
+      const mentionedClient = findMentionedClient(allClients, content)
+      if (mentionedClient) {
+        clientFiles = await loadClientFilesForPrompt(mentionedClient.id)
+      }
+    } catch (err) {
+      console.warn('Impossible de préparer les fichiers du client pour cette réponse :', err.message)
+    }
+
+    const rawReply = await getAssistantReply(history, systemPrompt, aiSettings?.business_context || '', clientFiles)
     const replyText = stripMarkdown(rawReply)
     const assistantMessage = await insertMessage('assistant', replyText)
     res.json({ userMessage, assistantMessage })
