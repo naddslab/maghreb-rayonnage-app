@@ -256,6 +256,123 @@ export async function createDealHistory(clientId, oldValue, newValue, reason) {
   }
 }
 
+// ---------- Monthly revenue & goals ----------
+
+const REVENUE_TIMEZONE = 'Africa/Casablanca'
+const MONTH_LABELS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+const MONTH_FORMAT_RE = /^\d{4}-\d{2}$/
+
+function assertMonthFormat(month) {
+  if (typeof month !== 'string' || !MONTH_FORMAT_RE.test(month)) {
+    throw new Error(`Format de mois invalide : "${month}" (attendu "YYYY-MM").`)
+  }
+}
+
+// { year, month } (month is 1-12) for "now", read as wall-clock time in Morocco — independent of
+// whatever timezone the server process itself runs in.
+function currentCasablancaYearMonth() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: REVENUE_TIMEZONE,
+    year: 'numeric',
+    month: 'numeric',
+  }).formatToParts(new Date())
+  const year = Number(parts.find((p) => p.type === 'year')?.value)
+  const month = Number(parts.find((p) => p.type === 'month')?.value)
+  return { year, month }
+}
+
+// month/delta arithmetic that correctly rolls over the year boundary (delta may be negative).
+function shiftYearMonth(year, month, delta) {
+  const zeroBased = month - 1 + delta
+  const y = year + Math.floor(zeroBased / 12)
+  const m = ((zeroBased % 12) + 12) % 12 + 1
+  return { year: y, month: m }
+}
+
+function yearMonthToKey(year, month) {
+  return `${year}-${String(month).padStart(2, '0')}`
+}
+
+// The current month, in "YYYY-MM" form, as reckoned in Africa/Casablanca — used as the fallback
+// when a monthly goal is set without an explicit month (e.g. "mon objectif ce mois est 200000 DH").
+export function getCurrentCasablancaMonth() {
+  const { year, month } = currentCasablancaYearMonth()
+  return yearMonthToKey(year, month)
+}
+
+// Net revenue growth for one calendar month (Morocco-local), defined as the sum of
+// (new_value - old_value) across every deal_history row whose created_at falls within that
+// month. Bucketing is done in Postgres itself (created_at::timestamptz AT TIME ZONE ...) so the
+// server process's own timezone never enters into it. Brand-new clients whose first deal_history
+// row has no old_value (client just created with an initial value, no prior value to diff
+// against) are handled by COALESCE(old_value, 0) — the full initial value counts as growth.
+export async function getMonthlyRevenue(month) {
+  assertMonthFormat(month)
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(SUM(COALESCE(new_value, 0) - COALESCE(old_value, 0)), 0) AS revenue
+       FROM deal_history
+       WHERE to_char(created_at::timestamptz AT TIME ZONE '${REVENUE_TIMEZONE}', 'YYYY-MM') = $1`,
+      [month]
+    )
+    return Number(rows[0]?.revenue ?? 0)
+  } catch (err) {
+    throw new Error(`Impossible de calculer le chiffre d'affaires du mois ${month} : ${err.message}`)
+  }
+}
+
+// Array of { month: 'YYYY-MM', label: 'Jan'..'Déc', revenue } for the last `monthsBack` months,
+// oldest first, including the current month — powers the 12-month revenue chart.
+export async function getRevenueByMonth(monthsBack = 12) {
+  const count = Number.isInteger(monthsBack) && monthsBack > 0 ? monthsBack : 12
+  const { year, month } = currentCasablancaYearMonth()
+
+  const months = []
+  for (let i = count - 1; i >= 0; i--) {
+    const shifted = shiftYearMonth(year, month, -i)
+    months.push({ ...shifted, key: yearMonthToKey(shifted.year, shifted.month) })
+  }
+
+  const revenues = await Promise.all(months.map((m) => getMonthlyRevenue(m.key)))
+
+  return months.map((m, i) => ({
+    month: m.key,
+    label: MONTH_LABELS_FR[m.month - 1],
+    revenue: revenues[i],
+  }))
+}
+
+export async function getMonthlyGoal(month) {
+  assertMonthFormat(month)
+  try {
+    const { rows } = await pool.query('SELECT target_value FROM monthly_goals WHERE month = $1', [month])
+    return rows[0] ? Number(rows[0].target_value) : 0
+  } catch (err) {
+    throw new Error(`Impossible de récupérer l'objectif du mois ${month} : ${err.message}`)
+  }
+}
+
+export async function setMonthlyGoal(month, targetValue) {
+  assertMonthFormat(month)
+  const numericTarget = Number(targetValue)
+  if (!Number.isFinite(numericTarget) || numericTarget < 0) {
+    throw new Error(`Objectif invalide pour ${month} : "${targetValue}" (attendu un nombre positif).`)
+  }
+  const now = new Date().toISOString()
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO monthly_goals (month, target_value, updated_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (month) DO UPDATE SET target_value = EXCLUDED.target_value, updated_at = EXCLUDED.updated_at
+       RETURNING *`,
+      [month, numericTarget, now]
+    )
+    return { month: rows[0].month, targetValue: Number(rows[0].target_value), updatedAt: rows[0].updated_at }
+  } catch (err) {
+    throw new Error(`Impossible d'enregistrer l'objectif pour ${month} : ${err.message}`)
+  }
+}
+
 // ---------- Meetings ----------
 
 function rowToMeeting(row) {
@@ -698,6 +815,14 @@ export async function initDb() {
     CREATE TABLE IF NOT EXISTS seed_state (
       key TEXT PRIMARY KEY,
       seeded_at TEXT NOT NULL
+    )
+  `)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS monthly_goals (
+      month TEXT PRIMARY KEY,
+      target_value NUMERIC NOT NULL,
+      updated_at TEXT NOT NULL
     )
   `)
 

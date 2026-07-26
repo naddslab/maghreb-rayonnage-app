@@ -352,6 +352,11 @@ const EXTRACTION_SYSTEM_PROMPT = `Tu es un extracteur de faits structurés pour 
 - "meeting" : une réunion tenue ou planifiée avec un client, mentionnée explicitement dans l'échange. Champs : client_name, meeting_date, notes, meeting_type.
 - "activity" : un événement notable concernant un client (signature d'un contrat, devis refusé, paiement reçu, nouveau lead, etc.). Champs : client_name, activity_type, amount, description.
 - "delete_client" : Rachid demande EXPLICITEMENT de supprimer un client déjà connu (ex. "supprime Karim Benali", "retire ce client", "efface la fiche de X", "delete [nom]"). Champs : client_name (nom exact du client, tel qu'il apparaît dans la liste des clients connus).
+- "monthly_goal" : Rachid fixe ou met à jour un objectif de chiffre d'affaires pour un mois donné (ex. "mon objectif ce mois est 200000 DH", "notre objectif pour juillet est 500k"). Champs : month, target_value.
+
+Règles importantes pour "monthly_goal" :
+- "month" doit être au format "YYYY-MM". Déduis-le du contexte (nom de mois mentionné, "ce mois-ci", "le mois prochain", etc.) par rapport à la date actuelle fournie ci-dessous ; si aucun mois n'est mentionné, utilise le mois en cours.
+- "target_value" est un montant numérique en DH (pas de texte, pas de devise) — convertis les abréviations comme "500k" en 500000.
 
 Règles importantes pour "client" :
 - Si l'un des champs email, phone, location, next_step, value, importance n'est PAS mentionné dans l'échange, mets-le explicitement à null dans le JSON — ne l'omets pas, et n'invente JAMAIS une valeur manquante.
@@ -373,10 +378,21 @@ Champs par type :
 - meeting : client_name, meeting_date, notes, meeting_type
 - activity : client_name, activity_type, amount, description
 - delete_client : client_name
+- monthly_goal : month, target_value
 
 Toutes les dates doivent être des timestamps ISO 8601 absolus, calculés à partir de la date actuelle fournie (jamais des expressions relatives comme "demain"). La date et l'heure actuelles fournies ci-dessous sont exprimées en heure du Maroc (Africa/Casablanca), décalage horaire inclus (ex. "2026-07-26T23:10:00+01:00") : calcule toute expression relative directement par rapport à cette heure locale, puis renvoie les timestamps avec ce même décalage horaire — ne les convertis JAMAIS en UTC ("Z"), car cela décalerait la date locale d'un jour selon l'heure de la journée. Pour "client", n'omets un champ que si le concept lui-même n'a pas de sens dans le contexte (par exemple pas de company pour un particulier) ; pour email/phone/location/next_step/value/importance/vault, préfère toujours null explicite à l'omission. Si l'échange ne contient aucune information digne d'être mémorisée, réponds avec un tableau vide : []`
 
-const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date', 'deal_update', 'meeting', 'activity', 'delete_client'])
+const VALID_FACT_TYPES = new Set([
+  'client',
+  'goal',
+  'task',
+  'date',
+  'deal_update',
+  'meeting',
+  'activity',
+  'delete_client',
+  'monthly_goal',
+])
 
 // Compact "Karim Benali (Marjane Holding)" style list injected into the extraction prompt so
 // Claude can match a client mentioned by name to an existing record (for "client" updates and

@@ -20,6 +20,11 @@ import {
   deleteClient,
   getAllDealHistory,
   createDealHistory,
+  getMonthlyRevenue,
+  getRevenueByMonth,
+  getMonthlyGoal,
+  setMonthlyGoal,
+  getCurrentCasablancaMonth,
   getAllMeetings,
   createMeeting,
   getUpcomingMeetings,
@@ -56,10 +61,35 @@ const CLIENT_UPDATE_FIELDS = ['name', 'company', 'contact', 'email', 'phone', 'l
 // straight into the generic facts table, same as before this routing logic existed.
 const SIMPLE_FACT_TYPES = new Set(['goal', 'task', 'date'])
 
+// Tries an exact (case-insensitive) match first, then falls back to a fuzzy substring match in
+// either direction — "Karim" should still resolve to an existing "Karim Benali", and a client
+// extracted as "M. Karim Benali" should still resolve to an existing "Karim Benali". Logs which
+// match type (or absence of one) was used, since a silently-failed lookup here is what makes
+// deal/meeting/activity updates from chat look "stuck" without any visible error.
 function findClientByName(clients, name) {
   if (!name) return null
   const normalized = String(name).trim().toLowerCase()
-  return clients.find((c) => c.name && c.name.trim().toLowerCase() === normalized) || null
+  if (!normalized) return null
+
+  const exact = clients.find((c) => c.name && c.name.trim().toLowerCase() === normalized)
+  if (exact) {
+    console.log(`findClientByName("${name}") : correspondance exacte -> "${exact.name}"`)
+    return exact
+  }
+
+  const fuzzy = clients.find((c) => {
+    if (!c.name) return false
+    const clientName = c.name.trim().toLowerCase()
+    if (!clientName) return false
+    return clientName.includes(normalized) || normalized.includes(clientName)
+  })
+  if (fuzzy) {
+    console.log(`findClientByName("${name}") : correspondance approximative -> "${fuzzy.name}"`)
+    return fuzzy
+  }
+
+  console.warn(`findClientByName("${name}") : aucune correspondance trouvée parmi ${clients.length} client(s).`)
+  return null
 }
 
 // Claude API limits: ~5MB per base64-encoded image, and 32MB / 100 pages per PDF document.
@@ -187,6 +217,20 @@ async function persistExtractedFacts(extracted, existingClients) {
     try {
       if (SIMPLE_FACT_TYPES.has(f.fact_type)) {
         await insertFact(f.fact_type, c)
+        continue
+      }
+
+      // monthly_goal isn't tied to any client — resolve straight to setMonthlyGoal(), with a
+      // server-side fallback to the current Casablanca month in case Claude ever omits it despite
+      // the prompt's instruction to default to "this month".
+      if (f.fact_type === 'monthly_goal') {
+        const month = typeof c.month === 'string' && /^\d{4}-\d{2}$/.test(c.month) ? c.month : getCurrentCasablancaMonth()
+        const targetValue = Number(c.target_value)
+        if (!Number.isFinite(targetValue) || targetValue < 0) {
+          console.warn('Extraction "monthly_goal" ignorée : target_value invalide.', c)
+          continue
+        }
+        await setMonthlyGoal(month, targetValue)
         continue
       }
 
@@ -456,6 +500,47 @@ app.post('/api/clients/:clientId/deal-history', async (req, res) => {
   }
   const record = await createDealHistory(req.clientId, oldValue, newValue, reason)
   res.status(201).json(record)
+})
+
+// ---------- Revenue & goals ----------
+
+const MONTH_FORMAT_RE = /^\d{4}-\d{2}$/
+
+app.get('/api/revenue/monthly', async (req, res) => {
+  const month = typeof req.query.month === 'string' ? req.query.month : ''
+  if (!MONTH_FORMAT_RE.test(month)) {
+    return res.status(400).json({ error: 'Paramètre "month" invalide ou manquant (attendu "YYYY-MM").' })
+  }
+  const revenue = await getMonthlyRevenue(month)
+  res.json({ month, revenue })
+})
+
+app.get('/api/revenue/chart', async (req, res) => {
+  const monthsBack = Number(req.query.monthsBack)
+  const data = await getRevenueByMonth(Number.isInteger(monthsBack) && monthsBack > 0 ? monthsBack : 12)
+  res.json(data)
+})
+
+app.get('/api/goals/:month', async (req, res) => {
+  const { month } = req.params
+  if (!MONTH_FORMAT_RE.test(month)) {
+    return res.status(400).json({ error: 'Paramètre "month" invalide (attendu "YYYY-MM").' })
+  }
+  const targetValue = await getMonthlyGoal(month)
+  res.json({ month, targetValue })
+})
+
+app.put('/api/goals/:month', async (req, res) => {
+  const { month } = req.params
+  if (!MONTH_FORMAT_RE.test(month)) {
+    return res.status(400).json({ error: 'Paramètre "month" invalide (attendu "YYYY-MM").' })
+  }
+  const targetValue = Number(req.body?.targetValue)
+  if (!Number.isFinite(targetValue) || targetValue < 0) {
+    return res.status(400).json({ error: '"targetValue" doit être un nombre positif.' })
+  }
+  const result = await setMonthlyGoal(month, targetValue)
+  res.json(result)
 })
 
 // ---------- Meetings ----------
