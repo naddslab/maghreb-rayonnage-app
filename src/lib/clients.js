@@ -87,3 +87,31 @@ export async function fetchActivities(clientId) {
 export async function createActivity(clientId, activityType, amount, description) {
   return postJson(`/api/clients/${clientId}/activities`, { activityType, amount, description })
 }
+
+// ---------- Files ----------
+
+export async function fetchClientFiles(clientId) {
+  return request(`/api/clients/${clientId}/files`)
+}
+
+// `file` is a File/Blob object from an <input type="file"> element. Uses the shared request()
+// helper (same error handling as every other function here) — the only difference is the body
+// is FormData instead of JSON, so no Content-Type header is set: the browser fills it in
+// automatically, including the multipart boundary, which we'd otherwise get wrong by hand.
+export async function uploadClientFile(clientId, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request(`/api/clients/${clientId}/files`, { method: 'POST', body: formData })
+}
+
+export async function fetchFileUrl(fileId) {
+  return request(`/api/files/${fileId}/url`)
+}
+
+export async function deleteFile(fileId) {
+  return request(`/api/files/${fileId}`, { method: 'DELETE' })
+}
+
+export async function fetchAllFiles() {
+  return request('/api/files')
+}

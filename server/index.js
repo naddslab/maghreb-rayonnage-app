@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import multer from 'multer'
 import {
   initDb,
   closeDb,
@@ -23,6 +24,11 @@ import {
   createMeeting,
   getAllActivities,
   createActivity,
+  createFile,
+  getFilesByClientId,
+  getFileById,
+  deleteFile,
+  getAllFiles,
 } from './db.js'
 import {
   getAssistantReply,
@@ -33,6 +39,11 @@ import {
   VAULTS,
   resolveVaultId,
 } from './anthropic.js'
+import { uploadFileToStorage, getFileUrl, deleteFileFromStorage } from './supabaseStorage.js'
+
+// Files are buffered in memory (not written to disk) before being forwarded to Supabase
+// Storage — appropriate for the small VM this API runs on, but caps upload size accordingly.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
 
 const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date'])
 const VALID_IMPORTANCE = new Set(['X', 'XX', 'XXX'])
@@ -391,6 +402,68 @@ app.post('/api/clients/:clientId/activities', async (req, res) => {
   res.status(201).json(activity)
 })
 
+// ---------- Files ----------
+
+app.get('/api/clients/:clientId/files', async (req, res) => {
+  res.json(await getFilesByClientId(req.clientId))
+})
+
+app.post('/api/clients/:clientId/files', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "Aucun fichier reçu (champ 'file' manquant)." })
+  }
+
+  try {
+    const filePath = await uploadFileToStorage(req.file.buffer, req.file.originalname, req.file.mimetype)
+    const file = await createFile(req.clientId, req.file.originalname, filePath, req.file.mimetype, req.file.size)
+    const url = await getFileUrl(filePath)
+    res.status(201).json({ ...file, url })
+  } catch (err) {
+    console.error("Échec de l'envoi du fichier :", err)
+    res.status(500).json({ error: err.message || "Échec de l'envoi du fichier." })
+  }
+})
+
+app.get('/api/files', async (req, res) => {
+  res.json(await getAllFiles())
+})
+
+app.get('/api/files/:fileId/url', async (req, res) => {
+  const id = Number(req.params.fileId)
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'fileId invalide.' })
+  }
+  const file = await getFileById(id)
+  if (!file) {
+    return res.status(404).json({ error: 'Fichier introuvable.' })
+  }
+  const url = await getFileUrl(file.filePath)
+  res.json({ url })
+})
+
+app.delete('/api/files/:fileId', async (req, res) => {
+  const id = Number(req.params.fileId)
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'fileId invalide.' })
+  }
+
+  const file = await getFileById(id)
+  if (!file) {
+    return res.status(404).json({ error: 'Fichier introuvable.' })
+  }
+
+  try {
+    await deleteFileFromStorage(file.filePath)
+  } catch (err) {
+    // Don't let a storage-side failure (e.g. already missing, or a transient Supabase error)
+    // block removing the now-broken reference from the database.
+    console.warn(`Suppression du fichier ${id} dans le stockage a échoué (on continue) :`, err.message)
+  }
+
+  const result = await deleteFile(id)
+  res.json(result)
+})
+
 // Catches errors from any route above (including rejected promises in async handlers,
 // which Express 5 forwards here automatically) so the API always replies with JSON —
 // never Express's default HTML error page, which would break the frontend's res.json().
@@ -399,6 +472,11 @@ app.use((req, res) => {
 })
 
 app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    const message =
+      err.code === 'LIMIT_FILE_SIZE' ? 'Le fichier dépasse la taille maximale autorisée (10 Mo).' : err.message
+    return res.status(400).json({ error: message })
+  }
   console.error('Erreur serveur non gérée :', err)
   res.status(500).json({ error: 'Une erreur interne est survenue.' })
 })

@@ -1,14 +1,34 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bot, Send, Sparkles } from 'lucide-react'
+import { Bot, Loader2, Paperclip, Send, Sparkles, X } from 'lucide-react'
 import Layout from '../components/Layout'
 import { currentUser } from '../data/mockData'
 import { apiUrl } from '../lib/api'
+import { fetchAllClients, createClient, uploadClientFile } from '../lib/clients'
 
 const SUGGESTIONS = [
   'Résume mes clients prioritaires',
   'Que dois-je faire aujourd\u2019hui ?',
   'Rappelle-moi les rendez-vous de la semaine',
 ]
+
+// Only images and PDFs are actually uploaded for now — Word/Excel are still offered in the file
+// picker (so they're not confusingly grayed out) but rejected with an explicit message.
+const OFFICE_EXTENSIONS = ['.doc', '.docx', '.xls', '.xlsx']
+const OFFICE_MIME_TYPES = [
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]
+
+function isSupportedAttachment(file) {
+  return file.type.startsWith('image/') || file.type === 'application/pdf'
+}
+
+function isOfficeDoc(file) {
+  const name = file.name.toLowerCase()
+  return OFFICE_EXTENSIONS.some((ext) => name.endsWith(ext)) || OFFICE_MIME_TYPES.includes(file.type)
+}
 
 function AutoResizeTextarea({ value, onChange, onKeyDown, placeholder, disabled }) {
   const ref = useRef(null)
@@ -56,7 +76,16 @@ export default function AIAssistantPage() {
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState(null)
   const scrollRef = useRef(null)
+  const fileInputRef = useRef(null)
   const firstName = currentUser.name.split(' ')[0]
+
+  // Attachment flow: pick a file -> pick/type which client it's for -> upload happens on send.
+  const [clients, setClients] = useState([])
+  const [attachedFile, setAttachedFile] = useState(null)
+  const [attachClientQuery, setAttachClientQuery] = useState('')
+  const [attachClientId, setAttachClientId] = useState(null)
+  const [attachmentError, setAttachmentError] = useState('')
+  const [isUploadingFile, setIsUploadingFile] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -79,14 +108,105 @@ export default function AIAssistantPage() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    fetchAllClients()
+      .then((data) => {
+        if (!cancelled) setClients(data)
+      })
+      .catch(() => {
+        // The client picker just falls back to "always create a new client" if this fails.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const attachSuggestions =
+    attachClientQuery.trim() && !attachClientId
+      ? clients
+          .filter((c) => c.name.toLowerCase().includes(attachClientQuery.trim().toLowerCase()))
+          .slice(0, 5)
+      : []
+
+  function handleFileSelected(e) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow picking the same file again later
+    if (!file) return
+
+    if (!isSupportedAttachment(file)) {
+      setAttachmentError(
+        isOfficeDoc(file)
+          ? "Ce format n'est pas encore supporté. Utilisez une image ou un PDF."
+          : "Ce type de fichier n'est pas pris en charge. Utilisez une image ou un PDF."
+      )
+      return
+    }
+
+    setAttachmentError('')
+    setAttachedFile(file)
+    setAttachClientQuery('')
+    setAttachClientId(null)
+  }
+
+  function clearAttachment() {
+    setAttachedFile(null)
+    setAttachClientQuery('')
+    setAttachClientId(null)
+    setAttachmentError('')
+  }
+
+  // Resolves the typed/selected client name to an id, creating the client on the fly if it
+  // doesn't exist yet — the user is explicitly allowed to type a brand-new name.
+  async function resolveAttachmentClient(name) {
+    if (attachClientId) {
+      const known = clients.find((c) => c.id === attachClientId)
+      if (known && known.name.trim().toLowerCase() === name.toLowerCase()) return known
+    }
+
+    const existing = clients.find((c) => c.name.trim().toLowerCase() === name.toLowerCase())
+    if (existing) return existing
+
+    const created = await createClient(name)
+    setClients((prev) => [created, ...prev])
+    return created
+  }
+
+  useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages, isSending])
 
   async function sendMessage(rawText) {
-    const content = rawText.trim()
-    if (!content || isSending) return
+    const trimmed = rawText.trim()
+    if ((!trimmed && !attachedFile) || isSending || isUploadingFile) return
+
+    let content = trimmed
+
+    if (attachedFile) {
+      const clientName = attachClientQuery.trim()
+      if (!clientName) {
+        setAttachmentError('Indiquez le client concerné avant d\u2019envoyer.')
+        return
+      }
+
+      setIsUploadingFile(true)
+      setAttachmentError('')
+      try {
+        const client = await resolveAttachmentClient(clientName)
+        await uploadClientFile(client.id, attachedFile)
+        const note = `[Fichier joint : ${attachedFile.name} pour ${client.name}]`
+        content = content ? `${content}\n\n${note}` : note
+        clearAttachment()
+      } catch (err) {
+        setAttachmentError(err.message || "Échec de l'envoi du fichier.")
+        setIsUploadingFile(false)
+        return
+      }
+      setIsUploadingFile(false)
+    }
+
+    if (!content) return
 
     const tempId = `local-${Date.now()}`
     const tempUserMessage = { id: tempId, role: 'user', content, timestamp: new Date().toISOString() }
@@ -199,21 +319,96 @@ export default function AIAssistantPage() {
         </div>
 
         <div className="border-t border-ink-200 bg-white px-4 pb-3 pt-3 lg:pb-4">
+          {attachedFile && (
+            <div className="mx-auto mb-2 flex max-w-[700px] flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-[12px] font-semibold text-ink-700">
+                {isUploadingFile ? (
+                  <Loader2 size={12} className="shrink-0 animate-spin text-ink-400" />
+                ) : (
+                  <Paperclip size={12} className="shrink-0 text-ink-400" />
+                )}
+                <span className="max-w-[160px] truncate">{attachedFile.name}</span>
+                {!isUploadingFile && (
+                  <button
+                    type="button"
+                    onClick={clearAttachment}
+                    aria-label="Retirer le fichier"
+                    className="text-ink-400 transition-colors hover:text-rose-500"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </span>
+
+              <div className="relative min-w-[200px] flex-1">
+                <input
+                  type="text"
+                  value={attachClientQuery}
+                  onChange={(e) => {
+                    setAttachClientQuery(e.target.value)
+                    setAttachClientId(null)
+                  }}
+                  disabled={isUploadingFile}
+                  placeholder="Client concerné…"
+                  className="input-field w-full py-1.5 text-[12px]"
+                />
+                {attachSuggestions.length > 0 && (
+                  <div className="absolute bottom-full left-0 z-10 mb-1 w-full overflow-hidden rounded-lg border border-ink-200 bg-white py-1 shadow-sm">
+                    {attachSuggestions.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setAttachClientId(c.id)
+                          setAttachClientQuery(c.name)
+                        }}
+                        className="block w-full px-3 py-1.5 text-left text-[12px] font-medium text-ink-700 hover:bg-ink-50"
+                      >
+                        {c.name}
+                        {c.company && <span className="ml-1 text-ink-400">— {c.company}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {attachmentError && (
+            <p className="mx-auto mb-2 max-w-[700px] text-[11.5px] font-semibold text-rose-500">{attachmentError}</p>
+          )}
+
           <form onSubmit={handleSubmit} className="mx-auto flex max-w-[700px] items-end gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"
+              className="hidden"
+              onChange={handleFileSelected}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isSending || isUploadingFile}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-ink-200 text-ink-500 transition-colors hover:border-accent-300 hover:text-accent-600 disabled:opacity-40"
+              aria-label="Joindre un fichier"
+            >
+              <Paperclip size={16} />
+            </button>
             <AutoResizeTextarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Écrivez un message…"
-              disabled={isSending}
+              disabled={isSending || isUploadingFile}
             />
             <button
               type="submit"
-              disabled={!draft.trim() || isSending}
+              disabled={(!draft.trim() && !attachedFile) || isSending || isUploadingFile}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-500 text-white transition-transform active:scale-95 disabled:opacity-40"
               aria-label="Envoyer"
             >
-              <Send size={16} />
+              {isUploadingFile ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
             </button>
           </form>
           <p className="mx-auto mt-1.5 max-w-[700px] text-center text-[10.5px] text-ink-400">

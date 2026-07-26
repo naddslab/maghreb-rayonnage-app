@@ -347,6 +347,84 @@ export async function createActivity(clientId, activityType, amount, description
   }
 }
 
+// ---------- Files ----------
+
+function rowToFile(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    filename: row.filename,
+    filePath: row.file_path,
+    fileType: row.file_type,
+    fileSize: row.file_size === null ? null : Number(row.file_size),
+    createdAt: row.created_at,
+  }
+}
+
+export async function createFile(clientId, filename, filePath, fileType, fileSize) {
+  if (!filename || !String(filename).trim()) {
+    throw new Error('Le nom du fichier est requis.')
+  }
+  if (!filePath || !String(filePath).trim()) {
+    throw new Error("Le chemin du fichier est requis.")
+  }
+  const now = new Date().toISOString()
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO files (client_id, filename, file_path, file_type, file_size, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [clientId, filename, filePath, fileType ?? null, fileSize ?? null, now]
+    )
+    return rowToFile(rows[0])
+  } catch (err) {
+    if (err.code === '23503') {
+      throw new Error(`Client introuvable (id ${clientId}) : impossible d'enregistrer le fichier.`)
+    }
+    throw new Error(`Impossible d'enregistrer le fichier "${filename}" pour le client ${clientId} : ${err.message}`)
+  }
+}
+
+export async function getFilesByClientId(clientId) {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM files WHERE client_id = $1 ORDER BY created_at DESC, id DESC',
+      [clientId]
+    )
+    return rows.map(rowToFile)
+  } catch (err) {
+    throw new Error(`Impossible de récupérer les fichiers du client ${clientId} : ${err.message}`)
+  }
+}
+
+export async function getFileById(fileId) {
+  try {
+    const { rows } = await pool.query('SELECT * FROM files WHERE id = $1', [fileId])
+    return rowToFile(rows[0])
+  } catch (err) {
+    throw new Error(`Impossible de récupérer le fichier ${fileId} : ${err.message}`)
+  }
+}
+
+export async function deleteFile(fileId) {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM files WHERE id = $1', [fileId])
+    return { deleted: rowCount > 0 }
+  } catch (err) {
+    throw new Error(`Impossible de supprimer le fichier ${fileId} : ${err.message}`)
+  }
+}
+
+export async function getAllFiles() {
+  try {
+    const { rows } = await pool.query('SELECT * FROM files ORDER BY created_at DESC, id DESC')
+    return rows.map(rowToFile)
+  } catch (err) {
+    throw new Error(`Impossible de récupérer la liste des fichiers : ${err.message}`)
+  }
+}
+
 // Tracks one-time setup tasks (e.g. demo-data seeding) that should never repeat, even if the
 // table they seed is later emptied on purpose (e.g. a user manually clearing demo data before
 // handing the app to someone else). Gating on this instead of "is the table empty?" means a
@@ -534,6 +612,18 @@ export async function initDb() {
       activity_type TEXT,
       amount NUMERIC,
       description TEXT,
+      created_at TEXT NOT NULL
+    )
+  `)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS files (
+      id SERIAL PRIMARY KEY,
+      client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      file_type TEXT,
+      file_size INTEGER,
       created_at TEXT NOT NULL
     )
   `)
