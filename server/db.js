@@ -303,6 +303,28 @@ export async function createMeeting(clientId, meetingDate, notes, meetingType) {
   }
 }
 
+// Meetings across ALL clients, future-only, soonest first — used to feed the AI assistant's
+// system prompt (see buildSystemPrompt in anthropic.js) so it always has a ready list of
+// upcoming meetings instead of having to be asked client-by-client. meeting_date is stored as
+// an ISO 8601 string, so a plain lexicographic ">=" comparison against another ISO string sorts
+// identically to a chronological comparison, as long as both are absolute (UTC or offset-included).
+export async function getUpcomingMeetings(limit = 20) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT meetings.*, clients.name AS client_name
+       FROM meetings
+       JOIN clients ON clients.id = meetings.client_id
+       WHERE meetings.meeting_date >= $1
+       ORDER BY meetings.meeting_date ASC, meetings.id ASC
+       LIMIT $2`,
+      [new Date().toISOString(), limit]
+    )
+    return rows.map((row) => ({ ...rowToMeeting(row), clientName: row.client_name }))
+  } catch (err) {
+    throw new Error(`Impossible de récupérer les réunions à venir : ${err.message}`)
+  }
+}
+
 // ---------- Activities ----------
 
 function rowToActivity(row) {

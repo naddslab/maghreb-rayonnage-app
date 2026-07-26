@@ -22,6 +22,7 @@ import {
   createDealHistory,
   getAllMeetings,
   createMeeting,
+  getUpcomingMeetings,
   getAllActivities,
   createActivity,
   createFile,
@@ -268,7 +269,13 @@ app.post('/api/chat', async (req, res) => {
     const now = new Date()
     const aiSettings = await getAiSettings()
     const facts = await getAllFacts()
-    const systemPrompt = buildSystemPrompt(aiSettings?.system_prompt || SYSTEM_PROMPT, facts, now)
+    // Best-effort: an upcoming-meetings lookup failure shouldn't block the chat reply, it just
+    // means that turn's system prompt won't include the "Réunions à venir" section.
+    const upcomingMeetings = await getUpcomingMeetings(20).catch((err) => {
+      console.warn('Impossible de récupérer les réunions à venir pour le contexte IA :', err.message)
+      return []
+    })
+    const systemPrompt = buildSystemPrompt(aiSettings?.system_prompt || SYSTEM_PROMPT, facts, now, upcomingMeetings)
 
     // If the message names a known client, pull their image/PDF files so Claude can actually
     // read them this turn (e.g. "que dit le contrat de Karim Benali ?") instead of only knowing

@@ -111,17 +111,83 @@ function formatIsoForPrompt(value) {
   return `${datePart} à ${timePart}`
 }
 
-function formatFactLine(fact) {
+const MINUTE_MS = 60 * 1000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
+function pluralizeFr(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
+// Precisely formats the gap between `targetDate` and `now` as a natural French duration —
+// e.g. "dans 1 heure et 3 minutes", "dans 2 jours", "il y a 3 jours", "dans 3 semaines" — so
+// Claude never has to compute this itself and can just read/repeat an already-correct string.
+//
+// This is a pure difference of two absolute instants (target.getTime() - now.getTime()), never
+// server-local wall-clock fields like getDate()/getHours() — a Date-to-Date millisecond
+// difference is the exact same physical duration in every timezone, so there is no "day
+// boundary" to get wrong here regardless of which timezone the server process itself runs in.
+// (Africa/Casablanca only matters for *calendar-facing* formatting, like formatIsoForPrompt.)
+export function formatRelativeTime(targetDate, now = new Date()) {
+  const target = targetDate instanceof Date ? targetDate : new Date(targetDate)
+  if (Number.isNaN(target.getTime())) return ''
+
+  const diffMs = target.getTime() - now.getTime()
+  const isPast = diffMs < 0
+  const absMs = Math.abs(diffMs)
+
+  if (absMs < MINUTE_MS) return 'maintenant'
+
+  const totalMinutes = Math.floor(absMs / MINUTE_MS)
+  const totalHours = Math.floor(absMs / HOUR_MS)
+  const totalDays = Math.floor(absMs / DAY_MS)
+
+  let phrase
+  if (totalDays >= 7) {
+    // Weeks scale: show whole weeks, plus a day remainder only if there is one (so an exact
+    // multiple of 7 days reads as "3 semaines", not "3 semaines et 0 jour").
+    const weeks = Math.floor(totalDays / 7)
+    const remainingDays = totalDays % 7
+    phrase = pluralizeFr(weeks, 'semaine')
+    if (remainingDays > 0) phrase += ` et ${pluralizeFr(remainingDays, 'jour')}`
+  } else if (totalDays >= 1) {
+    const remainingHours = Math.floor((absMs - totalDays * DAY_MS) / HOUR_MS)
+    phrase = pluralizeFr(totalDays, 'jour')
+    if (remainingHours > 0) phrase += ` et ${pluralizeFr(remainingHours, 'heure')}`
+  } else if (totalHours >= 1) {
+    const remainingMinutes = Math.floor((absMs - totalHours * HOUR_MS) / MINUTE_MS)
+    phrase = pluralizeFr(totalHours, 'heure')
+    if (remainingMinutes > 0) phrase += ` et ${pluralizeFr(remainingMinutes, 'minute')}`
+  } else {
+    phrase = pluralizeFr(totalMinutes, 'minute')
+  }
+
+  return isPast ? `il y a ${phrase}` : `dans ${phrase}`
+}
+
+// " — dans 1 jour et 3 heures" style suffix to tack onto a formatted date, or '' if `value`
+// isn't a usable date — kept separate from formatRelativeTime so callers that don't need the
+// leading " — " (e.g. the upcoming-meetings section, which uses its own layout) can call
+// formatRelativeTime directly.
+function relativeSuffix(value, now) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const rel = formatRelativeTime(d, now)
+  return rel ? ` — ${rel}` : ''
+}
+
+function formatFactLine(fact, now) {
   const c = fact.content || {}
   switch (fact.fact_type) {
     case 'client':
-      return `- ${c.name || 'Client'}${c.company ? ` (${c.company})` : ''}${c.contact ? ` — contact : ${c.contact}` : ''}${c.meetingDate ? ` — prochain RDV : ${formatIsoForPrompt(c.meetingDate)}` : ''}${c.notes ? ` — ${c.notes}` : ''}`
+      return `- ${c.name || 'Client'}${c.company ? ` (${c.company})` : ''}${c.contact ? ` — contact : ${c.contact}` : ''}${c.meetingDate ? ` — prochain RDV : ${formatIsoForPrompt(c.meetingDate)}${relativeSuffix(c.meetingDate, now)}` : ''}${c.notes ? ` — ${c.notes}` : ''}`
     case 'goal':
-      return `- ${c.description || ''}${c.targetDate ? ` (échéance : ${formatIsoForPrompt(c.targetDate)})` : ''}`
+      return `- ${c.description || ''}${c.targetDate ? ` (échéance : ${formatIsoForPrompt(c.targetDate)}${relativeSuffix(c.targetDate, now)})` : ''}`
     case 'task':
-      return `- ${c.description || ''}${c.dueDate ? ` (à faire pour : ${formatIsoForPrompt(c.dueDate)})` : ''}`
+      return `- ${c.description || ''}${c.dueDate ? ` (à faire pour : ${formatIsoForPrompt(c.dueDate)}${relativeSuffix(c.dueDate, now)})` : ''}`
     case 'date':
-      return `- ${c.label || 'Date'} : ${formatIsoForPrompt(c.datetime)}${c.relatedTo ? ` (${c.relatedTo})` : ''}`
+      return `- ${c.label || 'Date'} : ${formatIsoForPrompt(c.datetime)}${relativeSuffix(c.datetime, now)}${c.relatedTo ? ` (${c.relatedTo})` : ''}`
     default:
       return `- ${JSON.stringify(c)}`
   }
@@ -129,11 +195,13 @@ function formatFactLine(fact) {
 
 // Builds the system prompt sent with every chat turn: the editable base persona (from
 // Réglages, falling back to the built-in default), an absolute reference to "now" so
-// relative dates ("demain", "la semaine prochaine") can be resolved, and a compact summary
-// of everything learned so far from the knowledge base.
+// relative dates ("demain", "la semaine prochaine") can be resolved, a compact summary of
+// everything learned so far from the knowledge base, and the list of upcoming meetings (see
+// getUpcomingMeetings in db.js) — each with a precomputed formatRelativeTime() string, so Claude
+// reads and repeats an already-correct duration instead of ever computing one itself.
 // dateStr/timeStr are pinned to Africa/Casablanca — the server may run in any timezone (Fly.io's
 // "iad" region is effectively UTC), but Rachid's business, and every date shown to him, is Morocco time.
-export function buildSystemPrompt(basePrompt = SYSTEM_PROMPT, facts = [], now = new Date()) {
+export function buildSystemPrompt(basePrompt = SYSTEM_PROMPT, facts = [], now = new Date(), upcomingMeetings = []) {
   const dateStr = now.toLocaleDateString('fr-FR', {
     weekday: 'long',
     day: 'numeric',
@@ -149,6 +217,18 @@ export function buildSystemPrompt(basePrompt = SYSTEM_PROMPT, facts = [], now = 
     `date comme référence absolue pour interpréter toute expression relative ("demain", "la semaine prochaine", ` +
     `"dans 3 jours"...).`
 
+  if (Array.isArray(upcomingMeetings) && upcomingMeetings.length > 0) {
+    const lines = upcomingMeetings.map((m) => {
+      const when = formatIsoForPrompt(m.meetingDate)
+      const rel = formatRelativeTime(new Date(m.meetingDate), now)
+      return `- ${m.clientName || 'Client inconnu'} : ${when}${rel ? ` — ${rel}` : ''}${m.meetingType ? ` (${m.meetingType})` : ''}${m.notes ? ` — ${m.notes}` : ''}`
+    })
+    prompt +=
+      '\n\nRéunions à venir (les durées ci-dessous sont déjà calculées avec précision — réutilise-les telles ' +
+      'quelles, ne recalcule jamais toi-même un écart de temps) :\n' +
+      lines.join('\n')
+  }
+
   const grouped = { client: [], goal: [], task: [], date: [] }
   facts.forEach((f) => {
     if (grouped[f.fact_type]) grouped[f.fact_type].push(f)
@@ -156,7 +236,7 @@ export function buildSystemPrompt(basePrompt = SYSTEM_PROMPT, facts = [], now = 
 
   const sections = Object.entries(grouped)
     .filter(([, list]) => list.length > 0)
-    .map(([type, list]) => `${FACT_TYPE_LABELS[type]} :\n${list.slice(0, 20).map(formatFactLine).join('\n')}`)
+    .map(([type, list]) => `${FACT_TYPE_LABELS[type]} :\n${list.slice(0, 20).map((f) => formatFactLine(f, now)).join('\n')}`)
 
   if (sections.length > 0) {
     prompt +=
