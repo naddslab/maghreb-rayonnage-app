@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bot, Loader2, Paperclip, Send, Sparkles, X } from 'lucide-react'
+import { Bot, Loader2, Paperclip, Send, Sparkles, X, RotateCcw } from 'lucide-react'
 import Layout from '../components/Layout'
 import { currentUser } from '../data/mockData'
 import { apiUrl } from '../lib/api'
@@ -263,6 +263,18 @@ export default function AIAssistantPage() {
 
   const hasMessages = messages.length > 0
 
+  function handleNewChat() {
+    if (
+      !hasMessages ||
+      confirm('Démarrer une nouvelle conversation ? Les messages précédents seront supprimés.')
+    ) {
+      setMessages([])
+      setDraft('')
+      clearAttachment()
+      setError(null)
+    }
+  }
+
   return (
     <Layout
       title="Assistant IA"
@@ -270,6 +282,20 @@ export default function AIAssistantPage() {
       fullBleed
     >
       <div className="flex h-full flex-col pb-16 lg:pb-0">
+        {hasMessages && (
+          <div className="flex items-center justify-end border-b border-ink-200 bg-white px-4 py-2.5">
+            <button
+              type="button"
+              onClick={handleNewChat}
+              className="flex items-center gap-1.5 rounded-lg border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 transition-colors hover:border-ink-300 hover:bg-ink-50 hover:text-ink-800"
+              aria-label="Nouvelle conversation"
+              title="Nouvelle conversation"
+            >
+              <RotateCcw size={14} />
+              Nouvelle conversation
+            </button>
+          </div>
+        )}
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           {!hasMessages && !isLoadingHistory ? (
             <div className="flex h-full flex-col items-center justify-center px-4 text-center">
