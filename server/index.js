@@ -206,6 +206,11 @@ async function persistExtractedFacts(extracted, existingClients) {
           c.name, c.company, c.contact, c.email, c.phone, c.location, c.next_step, c.value, c.importance, vaultId
         )
         knownClients.push(created)
+        // If this new client was signed with an initial deal value, record it in deal_history so
+        // it shows up in the monthly revenue chart (which queries deal_history, not clients.value).
+        if (c.value != null && typeof c.value === 'number' && c.value > 0) {
+          await createDealHistory(created.id, 0, c.value, 'Client initial')
+        }
       } else {
         console.warn('Extraction "client" ignorée : nom manquant.', c)
       }
