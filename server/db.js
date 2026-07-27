@@ -222,14 +222,16 @@ function rowToDealHistory(row) {
     oldValue: row.old_value === null ? null : Number(row.old_value),
     newValue: row.new_value === null ? null : Number(row.new_value),
     reason: row.reason,
-    createdAt: row.created_at,
+    // deal_history's timestamp column is named "changed_at", not "created_at" like most other
+    // tables here — keep the JS-facing field name createdAt for API consistency regardless.
+    createdAt: row.changed_at,
   }
 }
 
 export async function getAllDealHistory(clientId) {
   try {
     const { rows } = await pool.query(
-      'SELECT * FROM deal_history WHERE client_id = $1 ORDER BY created_at ASC, id ASC',
+      'SELECT * FROM deal_history WHERE client_id = $1 ORDER BY changed_at ASC, id ASC',
       [clientId]
     )
     return rows.map(rowToDealHistory)
@@ -242,7 +244,7 @@ export async function createDealHistory(clientId, oldValue, newValue, reason) {
   const now = new Date().toISOString()
   try {
     const { rows } = await pool.query(
-      `INSERT INTO deal_history (client_id, old_value, new_value, reason, created_at)
+      `INSERT INTO deal_history (client_id, old_value, new_value, reason, changed_at)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
       [clientId, oldValue ?? null, newValue ?? null, reason ?? null, now]
@@ -301,8 +303,8 @@ export function getCurrentCasablancaMonth() {
 }
 
 // Net revenue growth for one calendar month (Morocco-local), defined as the sum of
-// (new_value - old_value) across every deal_history row whose created_at falls within that
-// month. Bucketing is done in Postgres itself (created_at::timestamptz AT TIME ZONE ...) so the
+// (new_value - old_value) across every deal_history row whose changed_at falls within that
+// month. Bucketing is done in Postgres itself (changed_at::timestamptz AT TIME ZONE ...) so the
 // server process's own timezone never enters into it. Brand-new clients whose first deal_history
 // row has no old_value (client just created with an initial value, no prior value to diff
 // against) are handled by COALESCE(old_value, 0) — the full initial value counts as growth.
@@ -312,7 +314,7 @@ export async function getMonthlyRevenue(month) {
     const { rows } = await pool.query(
       `SELECT COALESCE(SUM(COALESCE(new_value, 0) - COALESCE(old_value, 0)), 0) AS revenue
        FROM deal_history
-       WHERE to_char(created_at::timestamptz AT TIME ZONE '${REVENUE_TIMEZONE}', 'YYYY-MM') = $1`,
+       WHERE to_char(changed_at::timestamptz AT TIME ZONE '${REVENUE_TIMEZONE}', 'YYYY-MM') = $1`,
       [month]
     )
     return Number(rows[0]?.revenue ?? 0)
@@ -352,7 +354,7 @@ export async function getMonthlyRevenueForVault(vaultId, month) {
        FROM deal_history dh
        JOIN clients c ON c.id = dh.client_id
        WHERE c.vault_id = $1
-         AND to_char(dh.created_at::timestamptz AT TIME ZONE '${REVENUE_TIMEZONE}', 'YYYY-MM') = $2`,
+         AND to_char(dh.changed_at::timestamptz AT TIME ZONE '${REVENUE_TIMEZONE}', 'YYYY-MM') = $2`,
       [vaultId, month]
     )
     return Number(rows[0]?.revenue ?? 0)
@@ -787,8 +789,26 @@ export async function initDb() {
       old_value NUMERIC,
       new_value NUMERIC,
       reason TEXT,
-      created_at TEXT NOT NULL
+      changed_at TEXT NOT NULL
     )
+  `)
+
+  // Unlike every other table here, deal_history's timestamp column is named "changed_at" — some
+  // environments' tables were created before that naming was settled on (with "created_at"
+  // instead, same situation as files/uploaded_at below). CREATE TABLE IF NOT EXISTS above is a
+  // no-op once the table already exists, so rename the old column in place for any deployment
+  // that still has it.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns WHERE table_name = 'deal_history' AND column_name = 'created_at'
+      ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns WHERE table_name = 'deal_history' AND column_name = 'changed_at'
+      ) THEN
+        ALTER TABLE deal_history RENAME COLUMN created_at TO changed_at;
+      END IF;
+    END $$;
   `)
 
   await pool.query(`
