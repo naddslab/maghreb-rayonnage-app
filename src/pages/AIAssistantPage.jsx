@@ -263,15 +263,29 @@ export default function AIAssistantPage() {
 
   const hasMessages = messages.length > 0
 
-  function handleNewChat() {
+  async function handleNewChat() {
     if (
-      !hasMessages ||
-      confirm('Démarrer une nouvelle conversation ? Les messages précédents seront supprimés.')
+      hasMessages &&
+      !confirm('Démarrer une nouvelle conversation ? Les messages précédents seront supprimés.')
     ) {
+      return
+    }
+
+    setDraft('')
+    clearAttachment()
+    setError(null)
+
+    try {
+      const res = await fetch(apiUrl('/api/chat/clear'), { method: 'POST' })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || 'Une erreur est survenue.')
+      }
       setMessages([])
-      setDraft('')
-      clearAttachment()
-      setError(null)
+    } catch (err) {
+      // The conversation wasn't actually deleted server-side — keep the existing messages
+      // visible rather than silently losing history the backend still has.
+      setError(err.message || "Impossible de supprimer la conversation. Réessayez.")
     }
   }
 

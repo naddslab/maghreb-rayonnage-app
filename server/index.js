@@ -6,6 +6,7 @@ import {
   initDb,
   closeDb,
   getAllMessages,
+  clearMessages,
   insertMessage,
   getAllFacts,
   insertFact,
@@ -312,6 +313,21 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/messages', async (req, res) => {
   res.json(await getAllMessages())
+})
+
+// There's no per-conversation grouping in this app (messages is one flat, chronological table
+// shared across the whole chat) — "clear" here means wipe the entire chat history, which is what
+// "Nouvelle conversation" in the UI is meant to do. Accepts an optional conversationId in the
+// body for forward compatibility, but it's currently unused/ignored since there's nothing to
+// scope by.
+app.post('/api/chat/clear', async (req, res) => {
+  try {
+    await clearMessages()
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Échec de la suppression de la conversation :', err)
+    res.status(500).json({ success: false, error: err.message || 'Impossible de supprimer la conversation.' })
+  }
 })
 
 app.post('/api/chat', async (req, res) => {
