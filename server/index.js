@@ -63,11 +63,11 @@ const CLIENT_UPDATE_FIELDS = ['name', 'company', 'contact', 'email', 'phone', 'l
 // straight into the generic facts table, same as before this routing logic existed.
 const SIMPLE_FACT_TYPES = new Set(['goal', 'task', 'date'])
 
-// Tries an exact (case-insensitive) match first, then falls back to a fuzzy substring match in
-// either direction — "Karim" should still resolve to an existing "Karim Benali", and a client
-// extracted as "M. Karim Benali" should still resolve to an existing "Karim Benali". Logs which
-// match type (or absence of one) was used, since a silently-failed lookup here is what makes
-// deal/meeting/activity updates from chat look "stuck" without any visible error.
+// Exact (case-insensitive, trimmed) match only — no fuzzy/substring fallback. A substring match
+// is unsafe here: "Mohammed" would ambiguously match both "Mohammed Ahmed" and "Mohammed Ali",
+// silently picking whichever happens to come first. Logs the outcome either way, since a
+// silently-failed lookup here is what makes deal/meeting/activity updates from chat look "stuck"
+// without any visible error.
 function findClientByName(clients, name) {
   if (!name) return null
   const normalized = String(name).trim().toLowerCase()
@@ -79,18 +79,7 @@ function findClientByName(clients, name) {
     return exact
   }
 
-  const fuzzy = clients.find((c) => {
-    if (!c.name) return false
-    const clientName = c.name.trim().toLowerCase()
-    if (!clientName) return false
-    return clientName.includes(normalized) || normalized.includes(clientName)
-  })
-  if (fuzzy) {
-    console.log(`findClientByName("${name}") : correspondance approximative -> "${fuzzy.name}"`)
-    return fuzzy
-  }
-
-  console.warn(`findClientByName("${name}") : aucune correspondance trouvée parmi ${clients.length} client(s).`)
+  console.warn(`findClientByName("${name}") : aucune correspondance exacte trouvée parmi ${clients.length} client(s).`)
   return null
 }
 
