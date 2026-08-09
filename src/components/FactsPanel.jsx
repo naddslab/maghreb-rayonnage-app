@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Users, Target, ListChecks, CalendarClock, Plus, Pencil, Trash2 } from 'lucide-react'
-import { apiUrl } from '../lib/api'
+import { apiUrl, authHeaders } from '../lib/api'
 
 const FACT_TYPES = [
   { type: 'client', label: 'Clients', icon: Users },
@@ -185,7 +185,7 @@ export default function FactsPanel() {
 
   async function loadFacts() {
     try {
-      const res = await fetch(apiUrl('/api/facts'))
+      const res = await fetch(apiUrl('/api/facts'), { headers: authHeaders() })
       if (res.ok) setFacts(await res.json())
     } catch {
       // Backend not reachable — keep whatever was already loaded and fail silently.
@@ -201,7 +201,7 @@ export default function FactsPanel() {
   async function handleAdd(values) {
     await fetch(apiUrl('/api/facts'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ fact_type: addType, content: values }),
     })
     setIsAdding(false)
@@ -211,7 +211,7 @@ export default function FactsPanel() {
   async function handleUpdate(id, factType, values) {
     await fetch(apiUrl(`/api/facts/${id}`), {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ fact_type: factType, content: values }),
     })
     setEditingId(null)
@@ -220,7 +220,7 @@ export default function FactsPanel() {
 
   async function handleDelete(id) {
     setFacts((prev) => prev.filter((f) => f.id !== id))
-    await fetch(apiUrl(`/api/facts/${id}`), { method: 'DELETE' })
+    await fetch(apiUrl(`/api/facts/${id}`), { method: 'DELETE', headers: authHeaders() })
   }
 
   return (

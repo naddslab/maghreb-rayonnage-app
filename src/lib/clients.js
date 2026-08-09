@@ -1,12 +1,15 @@
-import { apiUrl } from './api'
+import { apiUrl, authHeaders } from './api'
 
 // Shared by every function below: builds the full backend URL via apiUrl(), surfaces network
 // failures (backend unreachable, DNS, etc.) as a descriptive Error, and — for non-2xx responses —
 // prefers the `{ error: "..." }` message the API sends (see server/index.js) over a generic one.
-async function request(path, options) {
+// Always attaches the bearer token the backend requires — merged in rather than overwriting, so
+// callers that set their own headers (e.g. Content-Type for JSON bodies) keep working.
+async function request(path, options = {}) {
+  const opts = { ...options, headers: { ...authHeaders(), ...options.headers } }
   let res
   try {
-    res = await fetch(apiUrl(path), options)
+    res = await fetch(apiUrl(path), opts)
   } catch (err) {
     throw new Error(`Impossible de contacter le serveur (${path}) : ${err.message}`)
   }

@@ -3,7 +3,7 @@ import { Bell, Globe, Lock, Moon, Mail, Phone, Camera, Bot, Check, Save, AlertCi
 import Layout from '../components/Layout'
 import FactsPanel from '../components/FactsPanel'
 import { currentUser, defaultSystemPrompt, defaultKnowledgeBase } from '../data/mockData'
-import { apiUrl } from '../lib/api'
+import { apiUrl, authHeaders } from '../lib/api'
 
 function Toggle({ checked, onChange }) {
   return (
@@ -57,7 +57,7 @@ export default function Settings() {
 
   useEffect(() => {
     let isMounted = true
-    fetch(apiUrl('/api/ai-settings'))
+    fetch(apiUrl('/api/ai-settings'), { headers: authHeaders() })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!isMounted || !data || hasEditedRef.current) return
@@ -82,7 +82,7 @@ export default function Settings() {
     try {
       const res = await fetch(apiUrl('/api/ai-settings'), {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ system_prompt: systemPrompt, business_context: knowledgeBase }),
       })
       if (!res.ok) {

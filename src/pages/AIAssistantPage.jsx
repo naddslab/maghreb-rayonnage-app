@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Bot, Loader2, Paperclip, Send, Sparkles, X, RotateCcw } from 'lucide-react'
 import Layout from '../components/Layout'
 import { currentUser } from '../data/mockData'
-import { apiUrl } from '../lib/api'
+import { apiUrl, authHeaders } from '../lib/api'
 import { fetchAllClients, createClient, uploadClientFile, uploadGeneralFile } from '../lib/clients'
 
 const SUGGESTIONS = [
@@ -91,7 +91,7 @@ export default function AIAssistantPage() {
     let cancelled = false
     async function loadHistory() {
       try {
-        const res = await fetch(apiUrl('/api/messages'))
+        const res = await fetch(apiUrl('/api/messages'), { headers: authHeaders() })
         if (!res.ok) throw new Error('load failed')
         const data = await res.json()
         if (!cancelled) setMessages(data)
@@ -228,7 +228,7 @@ export default function AIAssistantPage() {
     try {
       const res = await fetch(apiUrl('/api/chat'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ content }),
       })
       const data = await res.json()
@@ -276,7 +276,7 @@ export default function AIAssistantPage() {
     setError(null)
 
     try {
-      const res = await fetch(apiUrl('/api/chat/clear'), { method: 'POST' })
+      const res = await fetch(apiUrl('/api/chat/clear'), { method: 'POST', headers: authHeaders() })
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.success) {
         throw new Error(data?.error || 'Une erreur est survenue.')

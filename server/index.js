@@ -286,6 +286,32 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
+const API_KEY = process.env.API_KEY
+
+if (!API_KEY) {
+  console.error(
+    'API_KEY manquante : ajoutez-la dans votre fichier .env (dev) ou comme secret Fly.io (prod) — voir .env.example. ' +
+      'Tant qu\'elle n\'est pas définie, toutes les requêtes protégées seront refusées (401) par sécurité.'
+  )
+}
+
+// Every route requires "Authorization: Bearer <API_KEY>", except the health check — Fly.io's own
+// monitoring hits it without any custom header, so it has to stay public. This is a single shared
+// secret (not per-user auth), appropriate for a small internal tool with one operator.
+app.use((req, res, next) => {
+  if (req.method === 'GET' && req.path === '/api/health') {
+    return next()
+  }
+
+  const authHeader = req.headers.authorization || ''
+  const [scheme, token] = authHeader.split(' ')
+  if (!API_KEY || scheme !== 'Bearer' || token !== API_KEY) {
+    return res.status(401).json({ error: 'Non autorisé.' })
+  }
+
+  next()
+})
+
 // Runs for every route with a :clientId param below, before the route handler: validates the id
 // is a number and that the client actually exists, so every one of those routes gets consistent
 // 400/404 behavior for free instead of repeating the same check in each handler.
