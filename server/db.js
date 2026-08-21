@@ -242,7 +242,21 @@ export async function getAllDealHistory(clientId) {
 
 export async function createDealHistory(clientId, oldValue, newValue, reason) {
   const now = new Date().toISOString()
+  const currentMonth = getCurrentCasablancaMonth()
   try {
+    const { rows: existing } = await pool.query(
+      `SELECT * FROM deal_history
+       WHERE client_id = $1
+         AND old_value IS NOT DISTINCT FROM $2
+         AND new_value IS NOT DISTINCT FROM $3
+         AND reason IS NOT DISTINCT FROM $4
+         AND to_char(changed_at::timestamptz AT TIME ZONE '${REVENUE_TIMEZONE}', 'YYYY-MM') = $5
+       LIMIT 1`,
+      [clientId, oldValue ?? null, newValue ?? null, reason ?? null, currentMonth]
+    )
+    if (existing.length > 0) {
+      return rowToDealHistory(existing[0])
+    }
     const { rows } = await pool.query(
       `INSERT INTO deal_history (client_id, old_value, new_value, reason, changed_at)
        VALUES ($1, $2, $3, $4, $5)
@@ -443,13 +457,18 @@ export async function createMeeting(clientId, meetingDate, notes, meetingType) {
   if (!meetingDate) {
     throw new Error('La date de la réunion est requise.')
   }
+  const parsed = new Date(meetingDate)
+  if (isNaN(parsed.getTime())) {
+    throw new Error(`Date de réunion invalide : "${meetingDate}".`)
+  }
+  const isoDate = parsed.toISOString()
   const now = new Date().toISOString()
   try {
     const { rows } = await pool.query(
       `INSERT INTO meetings (client_id, meeting_date, notes, meeting_type, created_at)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [clientId, meetingDate, notes ?? null, meetingType ?? null, now]
+      [clientId, isoDate, notes ?? null, meetingType ?? null, now]
     )
     return rowToMeeting(rows[0])
   } catch (err) {

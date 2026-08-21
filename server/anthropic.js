@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS = 1024
-const EXTRACTION_MAX_TOKENS = 512
+const EXTRACTION_MAX_TOKENS = 2048
 
 // Rachid's businesses operate in Morocco — every date/time shown to him or reasoned about by
 // Claude must reflect this timezone regardless of where the Node process itself happens to run
@@ -432,6 +432,10 @@ export async function extractFacts(userContent, assistantContent, now = new Date
     ],
   })
 
+  if (response.stop_reason !== 'end_turn') {
+    console.warn('Extraction may have been truncated. stop_reason:', response.stop_reason)
+  }
+  
   const textBlock = response.content.find((block) => block.type === 'text')
   const raw = (textBlock?.text ?? '[]').replace(/```json|```/g, '').trim()
 

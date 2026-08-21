@@ -267,7 +267,9 @@ async function persistExtractedFacts(extracted, existingClients) {
       }
 
       if (f.fact_type === 'deal_update') {
-        await createDealHistory(client.id, c.old_value, c.new_value, c.reason)
+        const currentClient = await getClientById(client.id)
+        const oldValue = currentClient?.value ?? null
+        await createDealHistory(client.id, oldValue, c.new_value, c.reason)
         if (c.new_value != null) await updateClient(client.id, { value: c.new_value })
       } else if (f.fact_type === 'meeting') {
         await createMeeting(client.id, c.meeting_date, c.notes, c.meeting_type)
@@ -486,6 +488,9 @@ app.post('/api/clients', async (req, res) => {
     return res.status(400).json({ error: `vaultId doit être l'un de : ${[...VALID_VAULT_IDS].join(', ')}.` })
   }
   const client = await createClient(name, company, contact, email, phone, location, nextStep, value, importance, vaultId)
+  if (value != null && typeof value === 'number' && value > 0) {
+    await createDealHistory(client.id, 0, value, 'Client initial')
+  }
   res.status(201).json(client)
 })
 
@@ -510,7 +515,11 @@ app.put('/api/clients/:clientId', async (req, res) => {
     return res.status(400).json({ error: `vaultId doit être l'un de : ${[...VALID_VAULT_IDS].join(', ')}.` })
   }
 
+  const oldValue = req.client.value
   const updated = await updateClient(req.clientId, updates)
+  if ('value' in updates && updates.value !== oldValue) {
+    await createDealHistory(req.clientId, oldValue, updates.value, 'Mise à jour REST')
+  }
   res.json(updated)
 })
 
