@@ -15,6 +15,7 @@ import {
   fetchMonthlyRevenue,
   fetchMonthlyGoal,
   getCurrentMoroccoMonth,
+  fetchVaultRevenueChart,
 } from '../lib/clients'
 
 const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -71,6 +72,7 @@ export default function Dashboard() {
   const [revenueChart, setRevenueChart] = useState([])
   const [monthlyTarget, setMonthlyTarget] = useState(0)
   const [monthlyActual, setMonthlyActual] = useState(0)
+  const [vaultStats, setVaultStats] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [statsError, setStatsError] = useState('')
@@ -106,8 +108,6 @@ export default function Dashboard() {
     }
 
     // Kept independent from the clients/meetings/activities load above: a failure here (or there)
-    // shouldn't block the other from rendering — the chart/gauge just falls back to 0 and shows
-    // its own inline error instead of blanking the whole dashboard.
     async function loadStats() {
       try {
         const [chart, goal, actual] = await Promise.all([
@@ -119,10 +119,25 @@ export default function Dashboard() {
         setRevenueChart(chart)
         setMonthlyTarget(goal?.targetValue || 0)
         setMonthlyActual(actual?.revenue || 0)
+    
+        const vaultIds = companies.map((c) => c.id)
+        const vaultCharts = await Promise.all(vaultIds.map((id) => fetchVaultRevenueChart(id, 2).catch(() => [])))
+        if (cancelled) return
+        const stats = {}
+        vaultIds.forEach((id, i) => {
+          const vc = vaultCharts[i]
+          stats[id] = {
+            revenue: vc.length > 0 ? vc[vc.length - 1].revenue : 0,
+            trend: computeMonthOverMonthTrend(vc),
+          }
+        })
+        setVaultStats(stats)
       } catch (err) {
         if (!cancelled) {
           setStatsError(err.message || "Impossible de charger le chiffre d'affaires et l'objectif du mois.")
         }
+      }
+    
       }
     }
 
@@ -226,38 +241,40 @@ export default function Dashboard() {
                   <Link to="/clients" className="flex items-center gap-1 text-[11.5px] font-bold text-accent-600 hover:text-accent-700">
                     Voir tous les clients
                     <ChevronRight size={13} />
-                  </Link>
-                </div>
-
-                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-                  {companies.map((company) => {
-                    const isPositive = company.stats.chiffreAffairesTrend >= 0
-                    return (
-                      <Link
-                        key={company.id}
-                        to={`/vault/${company.id}`}
-                        className="card-hover flex items-center gap-2.5 rounded-lg border border-ink-200 p-3"
-                      >
-                        <div
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white"
-                          style={{ background: company.color }}
-                        >
-                          {company.initials}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[12.5px] font-bold text-ink-800">{company.name}</p>
-                          <span
-                            className={
-                              'flex items-center gap-0.5 text-[11px] font-bold ' +
-                              (isPositive ? 'text-emerald-500' : 'text-rose-500')
-                            }
-                          >
-                            {isPositive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
-                            {isPositive ? '+' : ''}
-                            {company.stats.chiffreAffairesTrend}%
-                            <span className="ml-1 font-semibold text-ink-400">{formatCompactDH(company.stats.chiffreAffaires)}</span>
-                          </span>
-                        </div>
+                    {companies.map((company) => {
+  const vs = vaultStats[company.id]
+  const trend = vs?.trend ?? 0
+  const revenue = vs?.revenue ?? 0
+  const isPositive = trend >= 0
+  return (
+    <Link
+      key={company.id}
+      to={`/vault/${company.id}`}
+      className="card-hover flex items-center gap-2.5 rounded-lg border border-ink-200 p-3"
+    >
+      <div
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white"
+        style={{ background: company.color }}
+      >
+        {company.initials}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[12.5px] font-bold text-ink-800">{company.name}</p>
+        <span
+          className={
+            'flex items-center gap-0.5 text-[11px] font-bold ' +
+            (isPositive ? 'text-emerald-500' : 'text-rose-500')
+          }
+        >
+          {isPositive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+          {isPositive ? '+' : ''}
+          {trend}%
+          <span className="ml-1 font-semibold text-ink-400">{formatCompactDH(revenue)}</span>
+        </span>
+      </div>
+    </Link>
+  )
+})}
                       </Link>
                     )
                   })}
