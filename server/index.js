@@ -248,6 +248,7 @@ async function persistExtractedFacts(extracted, existingClients) {
         }
 
         try {
+          const files = await getFilesByClientId(client.id)
           const result = await deleteClient(client.id)
           console.log('Client deleted successfully:', result)
           knownClients.splice(knownClients.indexOf(client), 1)
@@ -255,6 +256,13 @@ async function persistExtractedFacts(extracted, existingClients) {
           // fire-and-forget), so this confirmation can't appear in that same reply — it's saved
           // as a new assistant message and will show up the next time the conversation is loaded.
           await insertMessage('assistant', `${client.name} supprimé.`)
+          for (const file of files) {
+            if (file.filePath) {
+              deleteFileFromStorage(file.filePath).catch((err) =>
+                console.warn(`Suppression du fichier "${file.filePath}" dans le stockage a échoué (ignoré) :`, err.message)
+              )
+            }
+          }
         } catch (err) {
           console.error('Delete failed:', err.message)
         }
@@ -531,7 +539,19 @@ app.put('/api/clients/:clientId', async (req, res) => {
 })
 
 app.delete('/api/clients/:clientId', async (req, res) => {
+  // Fetch file paths before deleting — the DB CASCADE removes file rows together with the
+  // client, so this lookup must happen first or the paths are gone before we can read them.
+  const files = await getFilesByClientId(req.clientId)
   await deleteClient(req.clientId)
+  // Storage deletions run after the DB commit and are intentionally fire-and-forget: a
+  // Supabase Storage failure must never roll back an already-committed client deletion.
+  for (const file of files) {
+    if (file.filePath) {
+      deleteFileFromStorage(file.filePath).catch((err) =>
+        console.warn(`Suppression du fichier "${file.filePath}" dans le stockage a échoué (ignoré) :`, err.message)
+      )
+    }
+  }
   res.json({ deleted: true })
 })
 
