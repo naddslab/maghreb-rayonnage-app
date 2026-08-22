@@ -350,7 +350,7 @@ const EXTRACTION_SYSTEM_PROMPT = `Tu es un extracteur de faits structurés pour 
 - "date" : une date ou un rendez-vous important, avec son horaire si précisé. Champs : label, datetime, relatedTo.
 - "deal_update" : un changement de valeur (montant) sur une offre en cours pour un client déjà identifié. Champs : client_name (le nom du client, ou null si l'échange ne permet pas de l'identifier avec certitude), old_value, new_value, reason.
 - "meeting" : une réunion tenue ou planifiée avec un client, mentionnée explicitement dans l'échange. Champs : client_name, meeting_date, notes, meeting_type.
-- "activity" : un événement notable concernant un client (signature d'un contrat, devis refusé, paiement reçu, nouveau lead, etc.). Champs : client_name, activity_type, amount, description.
+- "activity" : un événement notable concernant un client. Champs : client_name, activity_type, amount, description.
 - "delete_client" : Rachid demande EXPLICITEMENT de supprimer un client déjà connu (ex. "supprime Karim Benali", "retire ce client", "efface la fiche de X", "delete [nom]"). Champs : client_name (nom exact du client, tel qu'il apparaît dans la liste des clients connus).
 - "monthly_goal" : Rachid fixe ou met à jour un objectif de chiffre d'affaires pour un mois donné (ex. "mon objectif ce mois est 200000 DH", "notre objectif pour juillet est 500k"). Champs : month, target_value.
 
@@ -364,6 +364,11 @@ Règles importantes pour "client" :
 - Pour un NOUVEAU client (qui n'apparaît PAS dans la liste des clients connus) : si un montant de deal est mentionné dans le même contexte (ex. "j'ai signé un nouveau client pour 100k DH", "Client X nous a choisi pour 250 000 DH"), inclus ce montant dans le champ "value" du fait "client". Le backend l'enregistrera comme la valeur initiale du deal pour ce client.
 - Pour un client EXISTANT (qui apparaît dans la liste des clients connus) : si l'échange concerne principalement une mise à jour de la valeur du deal (ex. "j'ai signé X pour Y DH", "deal avec X est passé à Z", "contrat de X finalisé à Y"), extrais un fait "deal_update" plutôt qu'un fait "client". Utilise le nom exact tel qu'il apparaît dans la liste des clients connus pour le champ client_name du deal_update, afin que le backend puisse le relier sans ambiguïté. Si d'autres informations sur le client sont aussi mentionnées (nouvel email, nouveau contact, etc.), tu peux extraire DEUX faits : un "deal_update" pour la valeur ET un "client" pour les autres champs mis à jour.
 - "vault" identifie laquelle des trois entreprises de Rachid gère la relation avec ce client — PAS l'entreprise du client lui-même (qui va dans "company"). Utilise uniquement l'un de ces identifiants exacts : ${VAULT_LIST_FOR_PROMPT}. Ne déduis "vault" que si le coffre est explicitement mentionné ou clairement évident dans le contexte ; sinon mets null. N'invente jamais cette valeur.
+
+Règles importantes pour "activity" :
+- activity_type doit être EXACTEMENT l'une de ces valeurs — n'invente jamais une autre chaîne :
+  contrat_signé | paiement_reçu | devis_accepté | devis_envoyé | relance | nouveau_lead | réunion_tenue | devis_refusé | deal_perdu | contrat_annulé | autre
+- Si aucune valeur ne correspond précisément à l'événement décrit, utilise "autre".
 
 Règle importante pour "delete_client" :
 - N'extrais "delete_client" QUE si Rachid demande sans ambiguïté de supprimer/retirer/effacer un client précis. Une simple mention du client, une mise à jour, ou une phrase comme "ce client ne m'intéresse plus pour l'instant" ne sont PAS des demandes de suppression — dans le doute, n'extrais rien plutôt que de risquer une suppression involontaire.

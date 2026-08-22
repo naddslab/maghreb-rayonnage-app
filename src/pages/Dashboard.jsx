@@ -44,13 +44,34 @@ function formatActivityTime(iso) {
   return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
 }
 
-// Best-effort classification of an activity as good/bad news for the little colored dot — the
-// API only stores a free-text activityType, so this is a heuristic, not a real status field.
+// Maps an activity_type to a colored-dot category.
+// Primary path: exact match against the controlled enum emitted by the extraction prompt.
+// Fallback regex: handles old free-form values already in the database so historical rows
+// still render correctly even after the prompt was tightened.
 function activityDotType(activityType) {
-  const t = (activityType || '').toLowerCase()
-  if (/(signature|signé|gagné|paiement|payé)/.test(t)) return 'up'
-  if (/(refus|perdu|annulé|résilié)/.test(t)) return 'down'
-  return 'neutral'
+  switch (activityType) {
+    case 'contrat_signé':
+    case 'contract_signed':
+    case 'paiement_reçu':
+    case 'devis_accepté':
+      return 'up'
+    case 'devis_refusé':
+    case 'deal_perdu':
+    case 'contrat_annulé':
+      return 'down'
+    case 'devis_envoyé':
+    case 'relance':
+    case 'nouveau_lead':
+    case 'réunion_tenue':
+    case 'autre':
+      return 'neutral'
+    default: {
+      const t = (activityType || '').toLowerCase()
+      if (/(signature|signé|gagné|paiement|payé)/.test(t)) return 'up'
+      if (/(refus|perdu|annulé|résilié)/.test(t)) return 'down'
+      return 'neutral'
+    }
+  }
 }
 
 // /api/revenue/chart returns [{ month: 'YYYY-MM', label: 'Jan', revenue }, ...] — RevenueChart
