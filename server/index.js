@@ -39,6 +39,7 @@ import {
   getFileById,
   deleteFile,
   getAllFiles,
+  withTransaction,
 } from './db.js'
 import {
   getAssistantReply,
@@ -267,10 +268,12 @@ async function persistExtractedFacts(extracted, existingClients) {
       }
 
       if (f.fact_type === 'deal_update') {
-        const currentClient = await getClientById(client.id)
-        const oldValue = currentClient?.value ?? null
-        await createDealHistory(client.id, oldValue, c.new_value, c.reason)
-        if (c.new_value != null) await updateClient(client.id, { value: c.new_value })
+        await withTransaction(async (tx) => {
+          const currentClient = await getClientById(client.id, tx)
+          const oldValue = currentClient?.value ?? null
+          await createDealHistory(client.id, oldValue, c.new_value, c.reason, tx)
+          if (c.new_value != null) await updateClient(client.id, { value: c.new_value }, tx)
+        })
       } else if (f.fact_type === 'meeting') {
         await createMeeting(client.id, c.meeting_date, c.notes, c.meeting_type)
       } else if (f.fact_type === 'activity') {
@@ -364,8 +367,6 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ error: 'Le message ne peut pas être vide.' })
   }
 
-  const userMessage = await insertMessage('user', content)
-
   try {
     const history = await getAllMessages()
     const now = new Date()
@@ -397,8 +398,12 @@ app.post('/api/chat', async (req, res) => {
       console.warn('Impossible de préparer les fichiers pour cette réponse :', err.message)
     }
 
-    const rawReply = await getAssistantReply(history, systemPrompt, aiSettings?.business_context || '', clientFiles)
+    // The user message is not yet in the DB, so getAllMessages() above doesn't include it.
+    // Append it inline so Claude sees the full conversation including this turn, then persist
+    // both messages only after Claude succeeds — a failed API call leaves nothing in history.
+    const rawReply = await getAssistantReply([...history, { role: 'user', content }], systemPrompt, aiSettings?.business_context || '', clientFiles)
     const replyText = stripMarkdown(rawReply)
+    const userMessage = await insertMessage('user', content)
     const assistantMessage = await insertMessage('assistant', replyText)
     res.json({ userMessage, assistantMessage })
 
@@ -413,7 +418,6 @@ app.post('/api/chat', async (req, res) => {
   } catch (err) {
     console.error('Erreur lors de l\u2019appel \u00e0 l\u2019assistant IA:', err)
     res.status(500).json({
-      userMessage,
       error: err.message || "Une erreur est survenue lors de l'appel à l'assistant IA.",
     })
   }
@@ -516,10 +520,13 @@ app.put('/api/clients/:clientId', async (req, res) => {
   }
 
   const oldValue = req.client.value
-  const updated = await updateClient(req.clientId, updates)
-  if ('value' in updates && updates.value !== oldValue) {
-    await createDealHistory(req.clientId, oldValue, updates.value, 'Mise à jour REST')
-  }
+  const updated = await withTransaction(async (tx) => {
+    const u = await updateClient(req.clientId, updates, tx)
+    if ('value' in updates && updates.value !== oldValue) {
+      await createDealHistory(req.clientId, oldValue, updates.value, 'Mise à jour REST', tx)
+    }
+    return u
+  })
   res.json(updated)
 })
 

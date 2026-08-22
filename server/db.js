@@ -135,9 +135,9 @@ export async function getAllClients() {
   }
 }
 
-export async function getClientById(clientId) {
+export async function getClientById(clientId, db = pool) {
   try {
-    const { rows } = await pool.query('SELECT * FROM clients WHERE id = $1', [clientId])
+    const { rows } = await db.query('SELECT * FROM clients WHERE id = $1', [clientId])
     return rowToClient(rows[0])
   } catch (err) {
     throw new Error(`Impossible de récupérer le client ${clientId} : ${err.message}`)
@@ -178,7 +178,7 @@ const CLIENT_FIELD_TO_COLUMN = {
   vaultId: 'vault_id',
 }
 
-export async function updateClient(clientId, updates = {}) {
+export async function updateClient(clientId, updates = {}, db = pool) {
   const entries = Object.entries(updates).filter(([key]) => CLIENT_FIELD_TO_COLUMN[key])
   if (entries.length === 0) {
     throw new Error('Aucun champ valide à mettre à jour pour ce client.')
@@ -191,7 +191,7 @@ export async function updateClient(clientId, updates = {}) {
   values.push(new Date().toISOString(), clientId)
 
   try {
-    const { rows } = await pool.query(
+    const { rows } = await db.query(
       `UPDATE clients SET ${setClauses.join(', ')}, updated_at = $${updatedAtIndex}
        WHERE id = $${clientIdIndex}
        RETURNING *`,
@@ -240,12 +240,12 @@ export async function getAllDealHistory(clientId) {
   }
 }
 
-export async function createDealHistory(clientId, oldValue, newValue, reason) {
+export async function createDealHistory(clientId, oldValue, newValue, reason, db = pool) {
   const now = new Date().toISOString()
   const currentMonth = getCurrentCasablancaMonth()
   try {
-    const { rows: existing } = await pool.query(
-      `SELECT * FROM deal_history
+    const { rows: existing } = await db.query(`
+      SELECT * FROM deal_history
        WHERE client_id = $1
          AND old_value IS NOT DISTINCT FROM $2
          AND new_value IS NOT DISTINCT FROM $3
@@ -257,7 +257,7 @@ export async function createDealHistory(clientId, oldValue, newValue, reason) {
     if (existing.length > 0) {
       return rowToDealHistory(existing[0])
     }
-    const { rows } = await pool.query(
+    const { rows } = await db.query(
       `INSERT INTO deal_history (client_id, old_value, new_value, reason, changed_at)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
@@ -905,6 +905,25 @@ export async function initDb() {
 
   await seedFactsIfEmpty()
   await seedAiSettingsIfMissing()
+}
+
+// Checks out a pool client, wraps the callback in BEGIN/COMMIT/ROLLBACK, and releases the
+// client whether or not the callback throws. All db.query() calls inside the callback must
+// use the `tx` client passed to it — using the module-level `pool` inside a withTransaction
+// callback would send those queries on a different connection outside the transaction.
+export async function withTransaction(fn) {
+  const tx = await pool.connect()
+  try {
+    await tx.query('BEGIN')
+    const result = await fn(tx)
+    await tx.query('COMMIT')
+    return result
+  } catch (err) {
+    await tx.query('ROLLBACK')
+    throw err
+  } finally {
+    tx.release()
+  }
 }
 
 export async function closeDb() {
