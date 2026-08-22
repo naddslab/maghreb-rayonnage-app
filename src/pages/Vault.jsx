@@ -38,10 +38,18 @@ function computeMonthOverMonthTrend(apiData) {
 
 const importanceOrder = { XXX: 3, XX: 2, X: 1 }
 
-// A client counts as "signé" once their next step reads like a closed deal (contrat signé,
-// signature reçue, etc.) — the API doesn't track a separate status field.
+// A client counts as "signé" only when next_step confirms the deal is CLOSED.
+// The old /sign/i was too broad: "à signer", "envoyer pour signature" also contain "sign"
+// but mean the deal is still pending. The refined logic:
+//   1. Explicitly rejects infinitive contexts (à signer, pour signer, faire signer).
+//   2. Matches the French past participle "signé"/"signée" via sign[eé]e? but NOT the
+//      infinitive "signer" (ends in 'r') — the negative lookahead (?!r) handles both the
+//      accented form (é) and the unaccented fallback (e) without over-matching.
 function isSignedClient(client) {
-  return typeof client.nextStep === 'string' && /sign/i.test(client.nextStep)
+  if (typeof client.nextStep !== 'string') return false
+  const s = client.nextStep.toLowerCase()
+  if (/\bà signer\b/.test(s) || /\bpour signer\b/.test(s) || /\bfaire signer\b/.test(s)) return false
+  return /sign[eé]e?(?!r)/.test(s)
 }
 
 // The clients API returns { id, name, company, contact, email, phone, location, nextStep, value,
