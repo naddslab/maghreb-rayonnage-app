@@ -51,6 +51,8 @@ import {
   SYSTEM_PROMPT,
   VAULTS,
   resolveVaultId,
+  MAX_IMAGE_BYTES,
+  MAX_PDF_BYTES,
 } from './anthropic.js'
 import { uploadFileToStorage, getFileUrl, deleteFileFromStorage } from './supabaseStorage.js'
 
@@ -88,9 +90,6 @@ function findClientByName(clients, name) {
   return null
 }
 
-// Claude API limits: ~5MB per base64-encoded image, and 32MB / 100 pages per PDF document.
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024
-const MAX_PDF_BYTES = 32 * 1024 * 1024
 
 // Simple case-insensitive substring match: does the user's message mention this client by name?
 // Good enough for "what's up with Karim Benali" without needing a separate extraction call.

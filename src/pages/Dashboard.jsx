@@ -18,8 +18,6 @@ import {
   fetchVaultRevenueChart,
 } from '../lib/clients'
 
-const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
-
 // A client counts as "signé" only when next_step confirms the deal is CLOSED.
 // The old /sign/i was too broad: "à signer", "envoyer pour signature" also contain "sign"
 // but mean the deal is still pending. The refined logic:
@@ -105,6 +103,21 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [statsError, setStatsError] = useState('')
+  const [today, setToday] = useState(() =>
+    new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+  )
+
+  // Refresh the displayed date at the next midnight so the subtitle never shows yesterday's date
+  // when the tab is left open overnight.
+  useEffect(() => {
+    const d = new Date()
+    const msUntilMidnight = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1) - d
+    const t = setTimeout(
+      () => setToday(new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })),
+      msUntilMidnight
+    )
+    return () => clearTimeout(t)
+  }, [today])
 
   const currentMonth = useMemo(() => getCurrentMoroccoMonth(), [])
 
@@ -170,6 +183,9 @@ export default function Dashboard() {
     }
   }, [currentMonth])
 
+  // Lower-priority: `now` is used only for past/future meeting comparisons, not displayed text.
+  // It is intentionally pinned to component-mount time so the meeting lists don't re-sort during
+  // a session. A midnight-crossing refresh is not needed here.
   const now = useMemo(() => new Date(), [])
 
   const clientsSignes = clients.filter(isSignedClient).length
