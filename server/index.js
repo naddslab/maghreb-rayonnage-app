@@ -195,15 +195,21 @@ async function persistExtractedFacts(extracted, existingClients) {
           Object.assign(existing, updated)
         }
       } else if (c.name) {
-        const created = await createClient(
-          c.name, c.company, c.contact, c.email, c.phone, c.location, c.next_step, c.value, c.importance, vaultId
-        )
+        // Wrap createClient + createDealHistory atomically so a failed history write doesn't
+        // leave an orphaned client row with no revenue record.
+        const created = await withTransaction(async (tx) => {
+          const newClient = await createClient(
+            c.name, c.company, c.contact, c.email, c.phone, c.location, c.next_step, c.value, c.importance, vaultId, tx
+          )
+          // If this new client was signed with an initial deal value, record it in deal_history so
+          // it shows up in the monthly revenue chart (which queries deal_history, not clients.value).
+          if (c.value != null && typeof c.value === 'number' && c.value > 0) {
+            await createDealHistory(newClient.id, 0, c.value, 'Client initial', tx)
+          }
+          return newClient
+        })
+        // Only add to the in-memory list after both DB writes committed successfully.
         knownClients.push(created)
-        // If this new client was signed with an initial deal value, record it in deal_history so
-        // it shows up in the monthly revenue chart (which queries deal_history, not clients.value).
-        if (c.value != null && typeof c.value === 'number' && c.value > 0) {
-          await createDealHistory(created.id, 0, c.value, 'Client initial')
-        }
       } else {
         console.warn('Extraction "client" ignorée : nom manquant.', c)
       }
@@ -507,10 +513,13 @@ app.post('/api/clients', async (req, res) => {
   if (vaultId !== undefined && vaultId !== null && !VALID_VAULT_IDS.has(vaultId)) {
     return res.status(400).json({ error: `vaultId doit être l'un de : ${[...VALID_VAULT_IDS].join(', ')}.` })
   }
-  const client = await createClient(name, company, contact, email, phone, location, nextStep, value, importance, vaultId)
-  if (value != null && typeof value === 'number' && value > 0) {
-    await createDealHistory(client.id, 0, value, 'Client initial')
-  }
+  const client = await withTransaction(async (tx) => {
+    const created = await createClient(name, company, contact, email, phone, location, nextStep, value, importance, vaultId, tx)
+    if (value != null && typeof value === 'number' && value > 0) {
+      await createDealHistory(created.id, 0, value, 'Client initial', tx)
+    }
+    return created
+  })
   res.status(201).json(client)
 })
 

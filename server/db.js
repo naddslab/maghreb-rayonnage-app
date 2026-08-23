@@ -144,13 +144,13 @@ export async function getClientById(clientId, db = pool) {
   }
 }
 
-export async function createClient(name, company, contact, email, phone, location, nextStep, value, importance, vaultId) {
+export async function createClient(name, company, contact, email, phone, location, nextStep, value, importance, vaultId, db = pool) {
   if (!name || !String(name).trim()) {
     throw new Error('Le nom du client est requis.')
   }
   const now = new Date().toISOString()
   try {
-    const { rows } = await pool.query(
+    const { rows } = await db.query(
       `INSERT INTO clients (name, company, contact, email, phone, location, next_step, value, importance, vault_id, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
        RETURNING *`,
