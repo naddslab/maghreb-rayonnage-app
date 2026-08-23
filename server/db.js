@@ -23,7 +23,7 @@ if (!process.env.DATABASE_URL) {
 // in most managed environments (local dev, Railway, Fly.io) without requiring a CA bundle.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: true },
+  ssl: { rejectUnauthorized: false },
 })
 
 // Idle clients can be dropped by the DB provider at any time; without this listener that
