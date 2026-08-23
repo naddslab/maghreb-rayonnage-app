@@ -62,6 +62,7 @@ const VALID_FACT_TYPES = new Set(['client', 'goal', 'task', 'date'])
 const VALID_IMPORTANCE = new Set(['X', 'XX', 'XXX'])
 const VALID_VAULT_IDS = new Set(VAULTS.map((v) => v.id))
 const CLIENT_UPDATE_FIELDS = ['name', 'company', 'contact', 'email', 'phone', 'location', 'nextStep', 'value', 'importance', 'vaultId']
+const TEXT_UPDATE_FIELDS = ['company', 'contact', 'email', 'phone', 'location', 'nextStep']
 
 // Fact types extracted by extractFacts() that aren't tied to a client record and still go
 // straight into the generic facts table, same as before this routing logic existed.
@@ -492,6 +493,12 @@ app.post('/api/clients', async (req, res) => {
   if (typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'Le nom du client est requis.' })
   }
+  for (const [field, val] of [['company', company], ['contact', contact], ['email', email],
+                               ['phone', phone], ['location', location], ['nextStep', nextStep]]) {
+    if (val !== undefined && val !== null && typeof val !== 'string') {
+      return res.status(400).json({ error: `Le champ "${field}" doit être une chaîne de caractères ou null.` })
+    }
+  }
   if (value !== undefined && value !== null && typeof value !== 'number') {
     return res.status(400).json({ error: 'La valeur du client doit être un nombre.' })
   }
@@ -527,6 +534,11 @@ app.put('/api/clients/:clientId', async (req, res) => {
   }
   if ('vaultId' in updates && updates.vaultId !== null && !VALID_VAULT_IDS.has(updates.vaultId)) {
     return res.status(400).json({ error: `vaultId doit être l'un de : ${[...VALID_VAULT_IDS].join(', ')}.` })
+  }
+  for (const field of TEXT_UPDATE_FIELDS) {
+    if (field in updates && updates[field] !== null && typeof updates[field] !== 'string') {
+      return res.status(400).json({ error: `Le champ "${field}" doit être une chaîne de caractères ou null.` })
+    }
   }
 
   const oldValue = req.client.value

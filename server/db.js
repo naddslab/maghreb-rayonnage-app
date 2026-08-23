@@ -276,7 +276,7 @@ export async function createDealHistory(clientId, oldValue, newValue, reason, db
 
 const REVENUE_TIMEZONE = 'Africa/Casablanca'
 const MONTH_LABELS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
-const MONTH_FORMAT_RE = /^\d{4}-\d{2}$/
+const MONTH_FORMAT_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 
 function assertMonthFormat(month) {
   if (typeof month !== 'string' || !MONTH_FORMAT_RE.test(month)) {
