@@ -172,8 +172,6 @@ export default function Dashboard() {
           setStatsError(err.message || "Impossible de charger le chiffre d'affaires et l'objectif du mois.")
         }
       }
-    
-      }
     }
 
     load()
@@ -279,40 +277,40 @@ export default function Dashboard() {
                   <Link to="/clients" className="flex items-center gap-1 text-[11.5px] font-bold text-accent-600 hover:text-accent-700">
                     Voir tous les clients
                     <ChevronRight size={13} />
-                    {companies.map((company) => {
-  const vs = vaultStats[company.id]
-  const trend = vs?.trend ?? 0
-  const revenue = vs?.revenue ?? 0
-  const isPositive = trend >= 0
-  return (
-    <Link
-      key={company.id}
-      to={`/vault/${company.id}`}
-      className="card-hover flex items-center gap-2.5 rounded-lg border border-ink-200 p-3"
-    >
-      <div
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white"
-        style={{ background: company.color }}
-      >
-        {company.initials}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[12.5px] font-bold text-ink-800">{company.name}</p>
-        <span
-          className={
-            'flex items-center gap-0.5 text-[11px] font-bold ' +
-            (isPositive ? 'text-emerald-500' : 'text-rose-500')
-          }
-        >
-          {isPositive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
-          {isPositive ? '+' : ''}
-          {trend}%
-          <span className="ml-1 font-semibold text-ink-400">{formatCompactDH(revenue)}</span>
-        </span>
-      </div>
-    </Link>
-  )
-})}
+                  </Link>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {companies.map((company) => {
+                    const vs = vaultStats[company.id]
+                    const trend = vs?.trend ?? 0
+                    const revenue = vs?.revenue ?? 0
+                    const isPositive = trend >= 0
+                    return (
+                      <Link
+                        key={company.id}
+                        to={`/vault/${company.id}`}
+                        className="card-hover flex items-center gap-2.5 rounded-lg border border-ink-200 p-3"
+                      >
+                        <div
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold text-white"
+                          style={{ background: company.color }}
+                        >
+                          {company.initials}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[12.5px] font-bold text-ink-800">{company.name}</p>
+                          <span
+                            className={
+                              'flex items-center gap-0.5 text-[11px] font-bold ' +
+                              (isPositive ? 'text-emerald-500' : 'text-rose-500')
+                            }
+                          >
+                            {isPositive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+                            {isPositive ? '+' : ''}
+                            {trend}%
+                            <span className="ml-1 font-semibold text-ink-400">{formatCompactDH(revenue)}</span>
+                          </span>
+                        </div>
                       </Link>
                     )
                   })}
