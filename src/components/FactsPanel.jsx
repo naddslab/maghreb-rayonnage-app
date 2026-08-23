@@ -182,13 +182,20 @@ export default function FactsPanel() {
   const [editingId, setEditingId] = useState(null)
   const [isAdding, setIsAdding] = useState(false)
   const [addType, setAddType] = useState('client')
+  const [error, setError] = useState('')
 
   async function loadFacts() {
     try {
       const res = await fetch(apiUrl('/api/facts'), { headers: authHeaders() })
-      if (res.ok) setFacts(await res.json())
-    } catch {
-      // Backend not reachable — keep whatever was already loaded and fail silently.
+      if (res.ok) {
+        setFacts(await res.json())
+      } else {
+        console.error('Échec du chargement des faits, statut :', res.status)
+        setError('Impossible de charger les faits. Veuillez recharger la page.')
+      }
+    } catch (err) {
+      console.error('Impossible de contacter le serveur pour charger les faits :', err.message)
+      setError('Impossible de charger les faits. Veuillez recharger la page.')
     } finally {
       setIsLoading(false)
     }
@@ -199,28 +206,60 @@ export default function FactsPanel() {
   }, [])
 
   async function handleAdd(values) {
-    await fetch(apiUrl('/api/facts'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ fact_type: addType, content: values }),
-    })
-    setIsAdding(false)
-    loadFacts()
+    setError('')
+    try {
+      const res = await fetch(apiUrl('/api/facts'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ fact_type: addType, content: values }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error || `Erreur ${res.status} lors de l'ajout.`)
+      }
+      setIsAdding(false)
+      loadFacts()
+    } catch (err) {
+      console.error("Échec de l'ajout du fait :", err)
+      setError("Impossible d'ajouter ce fait. Veuillez réessayer.")
+    }
   }
 
   async function handleUpdate(id, factType, values) {
-    await fetch(apiUrl(`/api/facts/${id}`), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ fact_type: factType, content: values }),
-    })
-    setEditingId(null)
-    loadFacts()
+    setError('')
+    try {
+      const res = await fetch(apiUrl(`/api/facts/${id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ fact_type: factType, content: values }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error || `Erreur ${res.status} lors de la mise à jour.`)
+      }
+      setEditingId(null)
+      loadFacts()
+    } catch (err) {
+      console.error('Échec de la mise à jour du fait :', err)
+      setError('Impossible de modifier ce fait. Veuillez réessayer.')
+    }
   }
 
   async function handleDelete(id) {
+    setError('')
+    const snapshot = facts.find((f) => f.id === id)
     setFacts((prev) => prev.filter((f) => f.id !== id))
-    await fetch(apiUrl(`/api/facts/${id}`), { method: 'DELETE', headers: authHeaders() })
+    try {
+      const res = await fetch(apiUrl(`/api/facts/${id}`), { method: 'DELETE', headers: authHeaders() })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error || `Erreur ${res.status} lors de la suppression.`)
+      }
+    } catch (err) {
+      console.error('Échec de la suppression du fait :', err)
+      if (snapshot) setFacts((prev) => [...prev, snapshot].sort((a, b) => b.id - a.id))
+      setError('Impossible de supprimer ce fait. Veuillez réessayer.')
+    }
   }
 
   return (
@@ -246,6 +285,12 @@ export default function FactsPanel() {
       </div>
 
       <div className="flex flex-col gap-4 p-4">
+        {error && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[12.5px] font-semibold text-rose-600">
+            {error}
+          </div>
+        )}
+
         {isAdding && (
           <FactForm
             key={addType}

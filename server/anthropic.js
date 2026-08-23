@@ -370,6 +370,11 @@ Règles importantes pour "client" :
 - "vault" identifie laquelle des trois entreprises de Rachid gère la relation avec ce client — PAS l'entreprise du client lui-même (qui va dans "company"). Utilise uniquement l'un de ces identifiants exacts : ${VAULT_LIST_FOR_PROMPT}. Ne déduis "vault" que si le coffre est explicitement mentionné ou clairement évident dans le contexte ; sinon mets null. N'invente jamais cette valeur.
 - Si le client est NOUVEAU (absent de la liste des clients connus ci-dessous) et que vault ne peut pas être déterminé, ET que la réponse de l'assistant demande explicitement à Rachid de préciser l'entreprise (coffre), n'extrais PAS encore ce fait "client" — attends l'échange suivant, où Rachid aura fourni le vault, pour créer la fiche complète.
 
+Règles importantes pour "next_step" (dans les faits "client") :
+- next_step doit être EXACTEMENT l'une de ces valeurs — n'invente jamais une autre chaîne :
+  Envoyer un devis | Planifier une visite | Négocier le prix | Attente signature | Renouvellement à discuter | Relancer | Signé | Perdu
+- Choisis la valeur la plus proche du contexte de l'échange. Si l'état du client est inconnu ou non mentionné, mets next_step à null (ne l'omets pas — cf. règle ci-dessus).
+
 Règles importantes pour "activity" :
 - activity_type doit être EXACTEMENT l'une de ces valeurs — n'invente jamais une autre chaîne :
   contrat_signé | paiement_reçu | devis_accepté | devis_envoyé | relance | nouveau_lead | réunion_tenue | devis_refusé | deal_perdu | contrat_annulé | autre
