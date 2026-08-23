@@ -367,7 +367,7 @@ app.post('/api/chat/clear', async (req, res) => {
     res.json({ success: true })
   } catch (err) {
     console.error('Échec de la suppression de la conversation :', err)
-    res.status(500).json({ success: false, error: err.message || 'Impossible de supprimer la conversation.' })
+    res.status(500).json({ success: false, error: 'Impossible de supprimer la conversation.' })
   }
 })
 
@@ -428,7 +428,7 @@ app.post('/api/chat', async (req, res) => {
   } catch (err) {
     console.error('Erreur lors de l\u2019appel \u00e0 l\u2019assistant IA:', err)
     res.status(500).json({
-      error: err.message || "Une erreur est survenue lors de l'appel à l'assistant IA.",
+      error: "Une erreur est survenue lors de l'appel à l'assistant IA.",
     })
   }
 })
@@ -718,7 +718,7 @@ app.post('/api/clients/:clientId/files', upload.single('file'), async (req, res)
     res.status(201).json({ ...file, url })
   } catch (err) {
     console.error("Échec de l'envoi du fichier :", err)
-    res.status(500).json({ error: err.message || "Échec de l'envoi du fichier." })
+    res.status(500).json({ error: "Échec de l'envoi du fichier." })
   }
 })
 
@@ -738,7 +738,7 @@ app.post('/api/files', upload.single('file'), async (req, res) => {
     res.status(201).json({ ...file, url })
   } catch (err) {
     console.error("Échec de l'envoi du fichier :", err)
-    res.status(500).json({ error: err.message || "Échec de l'envoi du fichier." })
+    res.status(500).json({ error: "Échec de l'envoi du fichier." })
   }
 })
 
@@ -796,7 +796,7 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     const message =
-      err.code === 'LIMIT_FILE_SIZE' ? 'Le fichier dépasse la taille maximale autorisée (10 Mo).' : err.message
+      err.code === 'LIMIT_FILE_SIZE' ? 'Le fichier dépasse la taille maximale autorisée (10 Mo).' : "Erreur lors de l'envoi du fichier."
     return res.status(400).json({ error: message })
   }
   console.error('Erreur serveur non gérée :', err)
