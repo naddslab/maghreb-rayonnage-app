@@ -336,6 +336,9 @@ export async function getAssistantReply(history, systemPrompt = SYSTEM_PROMPT, b
     messages,
   })
 
+  if (response.stop_reason !== 'end_turn') {
+    console.warn('Assistant reply may have been truncated. stop_reason:', response.stop_reason)
+  }
   const textBlock = response.content.find((block) => block.type === 'text')
   return textBlock?.text ?? ''
 }

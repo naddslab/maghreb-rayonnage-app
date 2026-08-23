@@ -834,7 +834,17 @@ initDb()
 // close connections cleanly instead of dropping them mid-request.
 async function shutdown() {
   console.log('Arrêt en cours, fermeture des connexions...')
-  if (server) server.close()
+  await new Promise((resolve) => {
+    if (!server) return resolve()
+    const timeout = setTimeout(() => {
+      console.warn('server.close() timeout — forçage de la fermeture.')
+      resolve()
+    }, 5000)
+    server.close(() => {
+      clearTimeout(timeout)
+      resolve()
+    })
+  })
   await closeDb().catch(() => {})
   process.exit(0)
 }
