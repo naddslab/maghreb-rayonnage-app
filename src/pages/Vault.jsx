@@ -10,7 +10,7 @@ import PromoCard from '../components/PromoCard'
 import { companies, getCompany, formatDH, formatCompactDH } from '../data/mockData'
 import {
   fetchAllClients,
-  fetchMeetings,
+  fetchAllMeetings,
   fetchVaultRevenueChart,
   fetchVaultMonthlyRevenue,
   fetchMonthlyGoal,
@@ -97,12 +97,12 @@ export default function Vault() {
         const vaultClients = allClients.filter((c) => c.vaultId === company.id)
         setClients(vaultClients)
 
-        const meetingsByClient = await Promise.all(vaultClients.map((c) => fetchMeetings(c.id).catch(() => [])))
+        const allMeetings = await fetchAllMeetings()
         if (cancelled) return
+        const vaultClientIds = new Set(vaultClients.map((c) => c.id))
         const now = new Date()
-        const held = meetingsByClient
-          .flat()
-          .filter((m) => m.meetingDate && new Date(m.meetingDate) <= now).length
+        const held = allMeetings
+          .filter((m) => vaultClientIds.has(m.clientId) && m.meetingDate && new Date(m.meetingDate) <= now).length
         setReunionsTenues(held)
       } catch (err) {
         if (!cancelled) setError(err.message || 'Impossible de charger les clients de ce coffre.')
@@ -212,7 +212,7 @@ export default function Vault() {
             <PromoCard compact />
             <StatCard label="Clients signés" value={clientsSignes} trend={0} trendLabel="—" icon={Users} />
             <StatCard label="Réunions tenues" value={reunionsTenues} trend={0} trendLabel="—" icon={Calendar} />
-            <StatCard label="Chiffre d'affaires" value={formatCompactDH(chiffreAffaires)} trend={0} trendLabel="—" icon={Wallet} />
+            <StatCard label="Total portefeuille" value={formatCompactDH(chiffreAffaires)} trend={0} trendLabel="—" icon={Wallet} />
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">

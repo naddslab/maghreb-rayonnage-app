@@ -236,7 +236,7 @@ export default function Dashboard() {
             <PromoCard />
             <StatCard label="Clients signés" value={clientsSignes} trend={0} trendLabel="—" icon={Users} />
             <StatCard label="Réunions tenues" value={reunionsTenues} trend={0} trendLabel="—" icon={Calendar} />
-            <StatCard label="Chiffre d'affaires" value={formatCompactDH(chiffreAffaires)} trend={0} trendLabel="—" icon={Wallet} />
+            <StatCard label="Total portefeuille" value={formatCompactDH(chiffreAffaires)} trend={0} trendLabel="—" icon={Wallet} />
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -366,7 +366,7 @@ export default function Dashboard() {
                       <span className="shrink-0 text-[11px] text-ink-400">{formatActivityTime(activity.createdAt)}</span>
                       {activity.amount != null && (
                         <span
-                          className={'shrink-0 text-[11.5px] font-bold ' + (type === 'up' ? 'text-emerald-500' : 'text-rose-500')}
+                          className={'shrink-0 text-[11.5px] font-bold ' + (type === 'up' ? 'text-emerald-500' : type === 'down' ? 'text-rose-500' : 'text-ink-500')}
                         >
                           {formatDH(activity.amount)}
                         </span>
