@@ -1,9 +1,12 @@
+import { useId } from 'react'
+
 export default function CircularGauge({ pct, size = 184, strokeWidth = 14, label, sublabel }) {
+  const uid = useId().replace(/:/g, '')
   const clamped = Math.max(0, Math.min(100, pct))
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - clamped / 100)
-  const gradientId = 'gauge-gradient'
+  const gradientId = `gauge-gradient-${uid}`
 
   return (
     <div className="flex flex-col items-center">

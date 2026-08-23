@@ -458,7 +458,7 @@ export async function extractFacts(userContent, assistantContent, now = new Date
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     return parsed.filter(
-      (f) => f && typeof f === 'object' && VALID_FACT_TYPES.has(f.fact_type) && typeof f.content === 'object'
+      (f) => f && typeof f === 'object' && VALID_FACT_TYPES.has(f.fact_type) && f.content !== null && typeof f.content === 'object'
     )
   } catch (err) {
     console.error(

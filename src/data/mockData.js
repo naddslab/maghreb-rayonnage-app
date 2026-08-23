@@ -7,7 +7,7 @@ export const currentUser = {
   initials: 'RB',
 }
 
-export const defaultSystemPrompt = `Tu es l'assistant IA de Rachid, qui dirige trois entreprises de rayonnage industriel au Maroc. Tu l'aides à suivre ses clients, ses rendez-vous, et ses priorités commerciales. Réponds toujours en français, de manière naturelle et concise, sans formatage stylisé. Utilise une conversation simple et directe. Raisonnez à partir des principes fondamentaux : décomposez chaque problème en ses éléments essentiels avant de répondre. Privilégiez la précision et l'objectivité à la politesse. Apportez des réponses directes et substantielles, sans préambule, sans reformulation de ma question ni remplissage inutile. Luttez contre vos propres biais : ne cherchez pas à me plaire, n'abusez pas des nuances pour éviter les conflits et ne flattez pas. Si je me trompe ou si mon raisonnement est erroné, dites-le clairement. Si une position est défendable mais minoritaire ou inconfortable, exposez-la tout de même. Je privilégie la rigueur intellectuelle à l'agrément : concentrez-vous sur ce qui est vrai et utile, et non sur ce qui est confortable. Remettez en question mes hypothèses lorsque cela se justifie. Si une question est mal formulée ou repose sur une prémisse erronée, rectifiez cette prémisse avant de répondre plutôt que de répondre à côté du sujet. Pour tout problème concret, concluez par des mesures spécifiques et applicables : quoi faire, dans quel ordre et comment mesurer le succès. Évitez les conseils génériques. Lorsque vous énoncez quelque chose d'incertain, indiquez votre degré de confiance ainsi que les éléments susceptibles de le modifier. N'utilisez jamais la structure rhétorique « ce n'est pas X, c'est Y » ou « X n'est pas X, mais Y ». Évitez de définir les choses par contraste ; énoncez-les directement.`
+export const defaultSystemPrompt = `Tu es l'assistant IA de Rachid, qui dirige trois entreprises de rayonnage industriel au Maroc. Tu l'aides à suivre ses clients, ses rendez-vous, et ses priorités commerciales. Réponds toujours en français, de manière naturelle et concise, sans formatage stylisé. Utilise une conversation simple et directe. Important : chaque message de l'utilisateur est indépendant. Si un message ne fait pas explicitement référence à un fichier ou à un contexte antérieur, ne mentionnez PAS et ne référencez PAS les fichiers des échanges précédents, même s'ils apparaissent dans l'historique de la conversation. Concentrez-vous sur ce que le message actuel demande réellement, et non sur d'anciens téléversements ou images de test. En cas de doute sur la pertinence d'une référence à un fichier, demandez une clarification au lieu de supposer. Lorsque Rachid mentionne un nouveau client (absent de sa liste existante) sans préciser quelle entreprise gère ce client, demande-lui avant de confirmer : "Ce client est rattaché à Maghreb Rayonnage, AZ Rayonnage, ou Top Rayonnage ?" Ne crée pas la fiche sans cette information.`
 
 export const defaultKnowledgeBase = `Maghreb Rayonnage — groupe spécialisé dans la conception, la fabrication et l'installation de systèmes de rayonnage industriel, mezzanines et solutions de stockage au Maroc.
 
@@ -40,19 +40,6 @@ export const companies = [
     initials: 'MR',
     color: '#E67E22',
     city: 'Casablanca',
-    stats: {
-      clientsSignes: 0,
-      clientsSignesTrend: 0,
-      clientsSpark: [0, 0, 0, 0, 0, 0],
-      reunionsTenues: 0,
-      reunionsTenuesTrend: 0,
-      reunionsSpark: [0, 0, 0, 0, 0, 0],
-      chiffreAffaires: 0,
-      chiffreAffairesTrend: 0,
-      objectifPct: 0,
-      objectifCible: 0,
-      objectifActuel: 0,
-    },
     revenue: buildRevenue([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
   },
   {
@@ -62,19 +49,6 @@ export const companies = [
     initials: 'AZ',
     color: '#2E86AB',
     city: 'Tanger',
-    stats: {
-      clientsSignes: 0,
-      clientsSignesTrend: 0,
-      clientsSpark: [0, 0, 0, 0, 0, 0],
-      reunionsTenues: 0,
-      reunionsTenuesTrend: 0,
-      reunionsSpark: [0, 0, 0, 0, 0, 0],
-      chiffreAffaires: 0,
-      chiffreAffairesTrend: 0,
-      objectifPct: 0,
-      objectifCible: 0,
-      objectifActuel: 0,
-    },
     revenue: buildRevenue([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
   },
   {
@@ -84,63 +58,12 @@ export const companies = [
     initials: 'TR',
     color: '#2FA88A',
     city: 'Marrakech',
-    stats: {
-      clientsSignes: 0,
-      clientsSignesTrend: 0,
-      clientsSpark: [0, 0, 0, 0, 0, 0],
-      reunionsTenues: 0,
-      reunionsTenuesTrend: 0,
-      reunionsSpark: [0, 0, 0, 0, 0, 0],
-      chiffreAffaires: 0,
-      chiffreAffairesTrend: 0,
-      objectifPct: 0,
-      objectifCible: 0,
-      objectifActuel: 0,
-    },
     revenue: buildRevenue([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
   },
 ]
 
 export function getCompany(id) {
   return companies.find((c) => c.id === id)
-}
-
-// ---------- Clients ----------
-// importance: 'XXX' (haute), 'XX' (moyenne), 'X' (faible)
-// prochaineEtape: prochaine action commerciale à mener avec ce client
-
-const importanceOrder = { XXX: 3, XX: 2, X: 1 }
-
-function buildSparkline(id, base, trendUp) {
-  const points = []
-  for (let i = 0; i < 6; i++) {
-    const noise = Math.abs(Math.sin((id + 1) * (i + 2) * 12.9898)) % 1
-    const drift = trendUp ? i * base * 0.05 : -i * base * 0.035
-    const v = base * 0.62 + drift + noise * base * 0.22
-    points.push(Math.max(Math.round(v), Math.round(base * 0.15)))
-  }
-  points.push(base)
-  return points
-}
-
-const rawClients = []
-
-export const clients = rawClients.map((c) => {
-  const trendUp = !(c.prochaineEtape === 'Relancer' || c.id % 4 === 0)
-  return { ...c, sparkline: buildSparkline(c.id, c.valeur, trendUp), trendUp }
-})
-
-export function clientsForCompany(companyId) {
-  return clients
-    .filter((c) => c.companyId === companyId)
-    .slice()
-    .sort((a, b) => importanceOrder[b.importance] - importanceOrder[a.importance] || b.valeur - a.valeur)
-}
-
-export function allClientsSorted() {
-  return clients
-    .slice()
-    .sort((a, b) => importanceOrder[b.importance] - importanceOrder[a.importance] || b.valeur - a.valeur)
 }
 
 export const prochaineEtapeOptions = [
@@ -160,12 +83,6 @@ export const prochaineEtapeStyles = {
   'Renouvellement à discuter': 'bg-emerald-50 text-emerald-600',
   Relancer: 'bg-rose-50 text-rose-500',
 }
-
-// ---------- Meetings / activity (dashboard extras) ----------
-
-export const upcomingMeetings = []
-
-export const recentActivity = []
 
 // ---------- Formatting helpers ----------
 

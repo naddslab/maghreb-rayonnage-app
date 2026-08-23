@@ -2,14 +2,29 @@ import { useState } from 'react'
 import { TrendingUp, TrendingDown, Sparkles } from 'lucide-react'
 import { formatDH } from '../data/mockData'
 
+const RANGE_MONTHS = [12, 6, 3]
+const RANGE_LABELS = ['12M', '6M', '3M']
+
 export default function RevenueChart({ title = 'Croissance du CA', data, trend }) {
   const [activeIndex, setActiveIndex] = useState(null)
+  const [rangeIdx, setRangeIdx] = useState(0)
 
-  const max = Math.max(...data.map((d) => d.value))
-  const min = Math.min(...data.map((d) => d.value))
-  const bestIndex = data.findIndex((d) => d.isBest)
-  const total = data.reduce((sum, d) => sum + d.value, 0)
-  const isPositiveTrend = trend >= 0
+  const visibleData = data.slice(-RANGE_MONTHS[rangeIdx])
+  const max = Math.max(...visibleData.map((d) => d.value), 0)
+  const min = Math.min(...visibleData.map((d) => d.value), 0)
+  const bestIndex = visibleData.findIndex((d) => d.isBest)
+  const total = visibleData.reduce((sum, d) => sum + d.value, 0)
+
+  // Use the parent-supplied trend for 12M (already accurately computed server-side).
+  // For shorter ranges, derive from the visible slice by comparing the two halves.
+  let displayTrend = trend
+  if (rangeIdx > 0 && visibleData.length > 1) {
+    const half = Math.floor(visibleData.length / 2)
+    const firstHalf = visibleData.slice(0, half).reduce((s, d) => s + d.value, 0)
+    const secondHalf = visibleData.slice(half).reduce((s, d) => s + d.value, 0)
+    displayTrend = firstHalf === 0 ? 0 : Math.round(((secondHalf - firstHalf) / firstHalf) * 100)
+  }
+  const isPositiveTrend = displayTrend >= 0
 
   return (
     <div className="card p-4 sm:p-5">
@@ -25,21 +40,25 @@ export default function RevenueChart({ title = 'Croissance du CA', data, trend }
             >
               {isPositiveTrend ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
               {isPositiveTrend ? '+' : ''}
-              {trend}%
+              {displayTrend}%
             </span>
           </div>
-          <p className="mt-0.5 text-[11.5px] text-ink-400">Sur les 12 derniers mois</p>
+          <p className="mt-0.5 text-[11.5px] text-ink-400">Sur les {RANGE_MONTHS[rangeIdx]} derniers mois</p>
         </div>
 
         <div className="flex gap-0.5 rounded-lg bg-ink-100 p-1">
-          {['12M', '6M', '3M'].map((label, i) => (
+          {RANGE_LABELS.map((label, i) => (
             <button
               key={label}
               className={
                 'rounded-md px-2.5 py-1 text-[11px] font-bold transition-colors ' +
-                (i === 0 ? 'bg-white text-ink-800 shadow-xs' : 'text-ink-400 hover:text-ink-600')
+                (i === rangeIdx ? 'bg-white text-ink-800 shadow-xs' : 'text-ink-400 hover:text-ink-600')
               }
               type="button"
+              onClick={() => {
+                setRangeIdx(i)
+                setActiveIndex(null)
+              }}
             >
               {label}
             </button>
@@ -48,9 +67,9 @@ export default function RevenueChart({ title = 'Croissance du CA', data, trend }
       </div>
 
       <div className="relative mt-7 flex h-[180px] items-end gap-1.5 sm:h-[210px] sm:gap-2.5">
-        {data.map((d, i) => {
+        {visibleData.map((d, i) => {
           const heightPct = 12 + ((d.value - min) / Math.max(max - min, 1)) * 80
-          const prevValue = i === 0 ? d.value : data[i - 1].value
+          const prevValue = i === 0 ? d.value : visibleData[i - 1].value
           const isUp = d.value >= prevValue
           const isActive = activeIndex === i
           const isBest = i === bestIndex

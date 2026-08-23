@@ -864,7 +864,7 @@ async function shutdown() {
       resolve()
     })
   })
-  await closeDb().catch(() => {})
+  await closeDb().catch((err) => console.error('closeDb on shutdown failed:', err))
   process.exit(0)
 }
 
