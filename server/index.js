@@ -194,6 +194,11 @@ async function persistExtractedFacts(extracted, existingClients) {
           const updated = await updateClient(existing.id, updates)
           Object.assign(existing, updated)
         }
+        // EXTRACTION_SYSTEM_PROMPT allows meeting_date on a "client" fact; create the meeting row
+        // here so it is never silently dropped when Claude bundles it with the client update.
+        if (c.meeting_date) {
+          await createMeeting(existing.id, c.meeting_date, null, null)
+        }
       } else if (c.name) {
         // Wrap createClient + createDealHistory atomically so a failed history write doesn't
         // leave an orphaned client row with no revenue record.
@@ -210,6 +215,10 @@ async function persistExtractedFacts(extracted, existingClients) {
         })
         // Only add to the in-memory list after both DB writes committed successfully.
         knownClients.push(created)
+        // Same meeting_date handling for newly-created clients.
+        if (c.meeting_date) {
+          await createMeeting(created.id, c.meeting_date, null, null)
+        }
       } else {
         console.warn('Extraction "client" ignorée : nom manquant.', c)
       }
@@ -471,7 +480,9 @@ app.put('/api/facts/:id', async (req, res) => {
   if (!Number.isInteger(id) || !VALID_FACT_TYPES.has(fact_type) || typeof content !== 'object' || content === null) {
     return res.status(400).json({ error: 'fact_type ou content invalide.' })
   }
-  res.json(await updateFact(id, fact_type, content))
+  const updated = await updateFact(id, fact_type, content)
+  if (updated == null) return res.status(404).json({ error: 'Fait introuvable.' })
+  res.json(updated)
 })
 
 app.delete('/api/facts/:id', async (req, res) => {

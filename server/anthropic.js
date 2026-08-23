@@ -455,7 +455,13 @@ export async function extractFacts(userContent, assistantContent, now = new Date
     return parsed.filter(
       (f) => f && typeof f === 'object' && VALID_FACT_TYPES.has(f.fact_type) && typeof f.content === 'object'
     )
-  } catch {
+  } catch (err) {
+    console.error(
+      'Échec du parsing de l\'extraction JSON.',
+      '| stop_reason:', response.stop_reason,
+      '| raw output:', raw,
+      '| erreur:', err.message
+    )
     return []
   }
 }

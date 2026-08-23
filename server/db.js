@@ -242,17 +242,20 @@ export async function getAllDealHistory(clientId) {
 
 export async function createDealHistory(clientId, oldValue, newValue, reason, db = pool) {
   const now = new Date().toISOString()
-  const currentMonth = getCurrentCasablancaMonth()
   try {
+    // Dedup window: 5 minutes. A whole-month window was too broad — it would silently block a
+    // legitimate second correction for the same client in the same month (e.g. a re-negotiation).
+    // 5 minutes is long enough to absorb a double-extraction from a single conversation turn,
+    // but short enough not to suppress genuine follow-up updates later in the day.
     const { rows: existing } = await db.query(`
       SELECT * FROM deal_history
        WHERE client_id = $1
          AND old_value IS NOT DISTINCT FROM $2
          AND new_value IS NOT DISTINCT FROM $3
          AND reason IS NOT DISTINCT FROM $4
-         AND to_char(changed_at::timestamptz AT TIME ZONE '${REVENUE_TIMEZONE}', 'YYYY-MM') = $5
+         AND changed_at > NOW() - INTERVAL '5 minutes'
        LIMIT 1`,
-      [clientId, oldValue ?? null, newValue ?? null, reason ?? null, currentMonth]
+      [clientId, oldValue ?? null, newValue ?? null, reason ?? null]
     )
     if (existing.length > 0) {
       return rowToDealHistory(existing[0])
@@ -475,7 +478,12 @@ export async function createMeeting(clientId, meetingDate, notes, meetingType) {
   if (isNaN(parsed.getTime())) {
     throw new Error(`Date de réunion invalide : "${meetingDate}".`)
   }
-  const isoDate = parsed.toISOString()
+  // Pass the original string (which already carries the Casablanca timezone offset when it
+  // comes from Claude) rather than normalizing to UTC via toISOString(). PostgreSQL's
+  // timestamptz column accepts any ISO 8601 offset, so the stored instant is correct either
+  // way — but keeping the original offset avoids a potential calendar-day shift on near-midnight
+  // meetings when the server is not running in the Africa/Casablanca timezone.
+  const isoDate = meetingDate
   const now = new Date().toISOString()
   try {
     const { rows } = await pool.query(

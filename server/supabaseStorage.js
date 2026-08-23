@@ -2,6 +2,7 @@
 // row in the `clients` table) that server/index.js also imports.
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import WebSocket from 'ws'
+import { basename } from 'path'
 
 const BUCKET = 'client-files'
 
@@ -33,9 +34,12 @@ function getSupabase() {
 // as files.file_path so it can be looked up again later for signed URLs / deletion.
 export async function uploadFileToStorage(fileBuffer, fileName, fileType) {
   const client = getSupabase()
-  const path = `${Date.now()}-${fileName}`
+  // Strip any directory components (path traversal) and replace characters that could
+  // cause bucket namespace pollution or storage-key ambiguity.
+  const safeName = basename(fileName).replace(/[^a-zA-Z0-9._\-]/g, '_')
+  const storagePath = `${Date.now()}-${safeName}`
 
-  const { error } = await client.storage.from(BUCKET).upload(path, fileBuffer, {
+  const { error } = await client.storage.from(BUCKET).upload(storagePath, fileBuffer, {
     contentType: fileType || 'application/octet-stream',
     upsert: false,
   })
@@ -44,7 +48,7 @@ export async function uploadFileToStorage(fileBuffer, fileName, fileType) {
     throw new Error(`Échec de l'envoi du fichier "${fileName}" vers Supabase Storage : ${error.message}`)
   }
 
-  return path
+  return storagePath
 }
 
 // The bucket is private, so files have no public URL — every view/download needs a fresh signed
