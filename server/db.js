@@ -453,6 +453,20 @@ export async function getAllMeetings(clientId) {
   }
 }
 
+export async function getAllMeetingsWithClientName() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT meetings.*, clients.name AS client_name
+       FROM meetings
+       JOIN clients ON clients.id = meetings.client_id
+       ORDER BY meetings.meeting_date ASC, meetings.id ASC`
+    )
+    return rows.map((row) => ({ ...rowToMeeting(row), clientName: row.client_name }))
+  } catch (err) {
+    throw new Error(`Impossible de récupérer toutes les réunions : ${err.message}`)
+  }
+}
+
 export async function createMeeting(clientId, meetingDate, notes, meetingType) {
   if (!meetingDate) {
     throw new Error('La date de la réunion est requise.')
@@ -524,6 +538,20 @@ export async function getAllActivities(clientId) {
     return rows.map(rowToActivity)
   } catch (err) {
     throw new Error(`Impossible de récupérer les activités du client ${clientId} : ${err.message}`)
+  }
+}
+
+export async function getAllActivitiesWithClientName() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT activities.*, clients.name AS client_name
+       FROM activities
+       JOIN clients ON clients.id = activities.client_id
+       ORDER BY activities.created_at DESC, activities.id DESC`
+    )
+    return rows.map((row) => ({ ...rowToActivity(row), clientName: row.client_name }))
+  } catch (err) {
+    throw new Error(`Impossible de récupérer toutes les activités : ${err.message}`)
   }
 }
 

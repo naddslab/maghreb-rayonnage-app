@@ -29,9 +29,11 @@ import {
   setMonthlyGoal,
   getCurrentCasablancaMonth,
   getAllMeetings,
+  getAllMeetingsWithClientName,
   createMeeting,
   getUpcomingMeetings,
   getAllActivities,
+  getAllActivitiesWithClientName,
   createActivity,
   createFile,
   getFilesByClientId,
@@ -642,6 +644,22 @@ app.get('/api/vaults/:vaultId/revenue/chart', async (req, res) => {
 
 // ---------- Meetings ----------
 
+// Bulk endpoint: all meetings across every client, with client_name included via JOIN.
+// Uses no :clientId param so the app.param middleware (which runs getClientById per request)
+// is never invoked — one DB query instead of N+1.
+app.get('/api/meetings', async (req, res) => {
+  res.json(await getAllMeetingsWithClientName())
+})
+
+// ---------- Activities ----------
+
+// Bulk endpoint: all activities across every client, with client_name included via JOIN.
+app.get('/api/activities', async (req, res) => {
+  res.json(await getAllActivitiesWithClientName())
+})
+
+// ---------- Per-client meetings ----------
+
 app.get('/api/clients/:clientId/meetings', async (req, res) => {
   res.json(await getAllMeetings(req.clientId))
 })
@@ -661,7 +679,7 @@ app.post('/api/clients/:clientId/meetings', async (req, res) => {
   res.status(201).json(meeting)
 })
 
-// ---------- Activities ----------
+// ---------- Per-client activities ----------
 
 app.get('/api/clients/:clientId/activities', async (req, res) => {
   res.json(await getAllActivities(req.clientId))

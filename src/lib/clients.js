@@ -81,10 +81,18 @@ export async function createMeeting(clientId, meetingDate, notes, meetingType) {
   return postJson(`/api/clients/${clientId}/meetings`, { meetingDate, notes, meetingType })
 }
 
+export async function fetchAllMeetings() {
+  return request('/api/meetings')
+}
+
 // ---------- Activities ----------
 
 export async function fetchActivities(clientId) {
   return request(`/api/clients/${clientId}/activities`)
+}
+
+export async function fetchAllActivities() {
+  return request('/api/activities')
 }
 
 export async function createActivity(clientId, activityType, amount, description) {

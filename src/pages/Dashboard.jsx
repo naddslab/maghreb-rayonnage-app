@@ -9,8 +9,8 @@ import PromoCard from '../components/PromoCard'
 import { companies, formatCompactDH, formatDH } from '../data/mockData'
 import {
   fetchAllClients,
-  fetchMeetings,
-  fetchActivities,
+  fetchAllMeetings,
+  fetchAllActivities,
   fetchRevenueChart,
   fetchMonthlyRevenue,
   fetchMonthlyGoal,
@@ -113,22 +113,15 @@ export default function Dashboard() {
 
     async function load() {
       try {
-        const fetchedClients = await fetchAllClients()
-        if (cancelled) return
-        setClients(fetchedClients)
-
-        const [meetingsByClient, activitiesByClient] = await Promise.all([
-          Promise.all(fetchedClients.map((c) => fetchMeetings(c.id).catch(() => []))),
-          Promise.all(fetchedClients.map((c) => fetchActivities(c.id).catch(() => []))),
+        const [fetchedClients, allMeetings, allActivities] = await Promise.all([
+          fetchAllClients(),
+          fetchAllMeetings(),
+          fetchAllActivities(),
         ])
         if (cancelled) return
-
-        setMeetings(
-          fetchedClients.flatMap((c, i) => meetingsByClient[i].map((m) => ({ ...m, clientName: c.name })))
-        )
-        setActivities(
-          fetchedClients.flatMap((c, i) => activitiesByClient[i].map((a) => ({ ...a, clientName: c.name })))
-        )
+        setClients(fetchedClients)
+        setMeetings(allMeetings)
+        setActivities(allActivities)
       } catch (err) {
         if (!cancelled) setError(err.message || 'Impossible de charger les données du tableau de bord.')
       } finally {
