@@ -405,6 +405,10 @@ app.post('/api/chat', async (req, res) => {
     })
     const systemPrompt = buildSystemPrompt(aiSettings?.system_prompt || SYSTEM_PROMPT, facts, now, upcomingMeetings)
 
+    // Fetch clients once and share across both file-loading and extraction — single consistent
+    // snapshot for the entire turn, no second DB round-trip needed.
+    const allClients = await getAllClients()
+
     // If the message names a known client, pull their image/PDF files so Claude can actually
     // read them this turn (e.g. "que dit le contrat de Karim Benali ?") instead of only knowing
     // they exist. Also always include general (non-client) files — e.g. Rachid's own CV — so
@@ -412,7 +416,6 @@ app.post('/api/chat', async (req, res) => {
     // never blocks the chat reply if either lookup fails.
     let clientFiles = []
     try {
-      const allClients = await getAllClients()
       const mentionedClient = findMentionedClient(allClients, content)
       const [mentionedClientFiles, generalFiles] = await Promise.all([
         mentionedClient ? loadClientFilesForPrompt(mentionedClient.id) : Promise.resolve([]),
@@ -430,16 +433,17 @@ app.post('/api/chat', async (req, res) => {
     const replyText = stripMarkdown(rawReply)
     const userMessage = await insertMessage('user', content)
     const assistantMessage = await insertMessage('assistant', replyText)
-    res.json({ userMessage, assistantMessage })
 
-    // Fire-and-forget: learn from this exchange without ever blocking or breaking the chat reply.
-    getAllClients()
-      .then((existingClients) =>
-        extractFacts(content, replyText, now, existingClients).then((extracted) =>
-          persistExtractedFacts(extracted, existingClients)
-        )
-      )
-      .catch((err) => console.error('Extraction de faits échouée :', err))
+    // Awaited before responding so concurrent messages cannot race on the same client snapshot.
+    // Inner try/catch ensures an extraction failure never prevents the reply from being sent.
+    try {
+      const extracted = await extractFacts(content, replyText, now, allClients)
+      await persistExtractedFacts(extracted, allClients)
+    } catch (err) {
+      console.error('Extraction de faits échouée :', err)
+    }
+
+    res.json({ userMessage, assistantMessage })
   } catch (err) {
     console.error('Erreur lors de l\u2019appel \u00e0 l\u2019assistant IA:', err)
     res.status(500).json({
