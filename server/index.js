@@ -98,6 +98,17 @@ function findMentionedClient(clients, message) {
   return clients.find((c) => c.name && lower.includes(c.name.trim().toLowerCase())) || null
 }
 
+// Returns true if the message explicitly references a file or document so that general
+// (non-client) file attachments are only injected into the Claude prompt when actually relevant.
+// Without this gate, any file in the "general" bucket (client_id IS NULL) would be re-attached
+// as a live image/document block on every single turn, distracting the model even on unrelated messages.
+const FILE_KEYWORDS_RE =
+  /\b(fichier|document|image|photo|capture|scan|pdf|cv|curriculum\s+vitae|contrat|accord|plan|blueprint|sch[eé]ma|brochure|catalogue|pr[eé]sentation|devis|facture|rapport|annexe|pi[eè]ce\s+jointe|excel|word|tableau)\b/i
+
+function messageReferencesFiles(text) {
+  return FILE_KEYWORDS_RE.test(text)
+}
+
 // Fetches the actual bytes for every image/PDF in the given list so Claude can read them, not
 // just know they exist. Best-effort throughout: a file that fails to download or exceeds the
 // Claude API's size limits is skipped with a warning rather than failing the whole chat turn.
@@ -419,7 +430,7 @@ app.post('/api/chat', async (req, res) => {
       const mentionedClient = findMentionedClient(allClients, content)
       const [mentionedClientFiles, generalFiles] = await Promise.all([
         mentionedClient ? loadClientFilesForPrompt(mentionedClient.id) : Promise.resolve([]),
-        loadGeneralFilesForPrompt(),
+        messageReferencesFiles(content) ? loadGeneralFilesForPrompt() : Promise.resolve([]),
       ])
       clientFiles = [...mentionedClientFiles, ...generalFiles]
     } catch (err) {
