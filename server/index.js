@@ -459,7 +459,7 @@ app.post('/api/chat', async (req, res) => {
     // Awaited before responding so concurrent messages cannot race on the same client snapshot.
     // Inner try/catch ensures an extraction failure never prevents the reply from being sent.
     try {
-      const extracted = await extractFacts(content, replyText, now, allClients)
+      const extracted = await extractFacts(content, replyText, now, allClients, history.slice(-4))
       await persistExtractedFacts(extracted, allClients)
     } catch (err) {
       console.error('Extraction de faits échouée :', err)

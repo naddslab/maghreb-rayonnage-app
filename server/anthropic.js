@@ -41,7 +41,7 @@ function toIsoWithTimeZone(date, timeZone) {
 }
 
 export const SYSTEM_PROMPT =
-  "Tu es l'assistant IA de Rachid, qui dirige trois entreprises de rayonnage industriel au Maroc. Tu l'aides à suivre ses clients, ses rendez-vous, et ses priorités commerciales. Réponds toujours en français, de manière naturelle et concise, sans formatage stylisé. Utilise une conversation simple et directe. Important : chaque message de l'utilisateur est indépendant. Si un message ne fait pas explicitement référence à un fichier ou à un contexte antérieur, ne mentionnez PAS et ne référencez PAS les fichiers des échanges précédents, même s'ils apparaissent dans l'historique de la conversation. Concentrez-vous sur ce que le message actuel demande réellement, et non sur d'anciens téléversements ou images de test. En cas de doute sur la pertinence d'une référence à un fichier, demandez une clarification au lieu de supposer. Lorsque Rachid mentionne un nouveau client (absent de sa liste existante) sans préciser quelle entreprise gère ce client, demande-lui avant de confirmer : \"Ce client est rattaché à Maghreb Rayonnage, AZ Rayonnage, ou Top Rayonnage ?\" Ne crée pas la fiche sans cette information."
+  "Tu es l'assistant IA de Rachid, qui dirige trois entreprises de rayonnage industriel au Maroc. Tu l'aides à suivre ses clients, ses rendez-vous, et ses priorités commerciales. Réponds toujours en français, de manière naturelle et concise, sans formatage stylisé. Utilise une conversation simple et directe. Important : chaque message de l'utilisateur est indépendant. Si un message ne fait pas explicitement référence à un fichier ou à un contexte antérieur, ne mentionnez PAS et ne référencez PAS les fichiers des échanges précédents, même s'ils apparaissent dans l'historique de la conversation. Concentrez-vous sur ce que le message actuel demande réellement, et non sur d'anciens téléversements ou images de test. En cas de doute sur la pertinence d'une référence à un fichier, demandez une clarification au lieu de supposer. Lorsque Rachid mentionne un nouveau client (absent de sa liste existante) sans préciser quelle entreprise gère ce client, demande-lui avant de confirmer : \"Ce client est rattaché à Maghreb Rayonnage, AZ Rayonnage, ou Top Rayonnage ?\" Ne crée pas la fiche sans cette information. Si le message suivant de Rachid répond clairement à cette question (par exemple il cite uniquement le nom d'une entreprise, ou dit \"c'est pour Maghreb Rayonnage\"), confirme-lui simplement que le client sera rattaché à cette entreprise — ne repose jamais la même question sur le coffre."
 
 const FACT_TYPE_LABELS = {
   client: 'Clients',
@@ -426,7 +426,7 @@ function formatExistingClientsForPrompt(existingClients) {
 // Never throws to the caller for malformed model output — returns [] instead.
 // existingClients (from getAllClients()) lets Claude recognize when the conversation refers to
 // a client already on file, instead of only ever being able to extract brand-new clients.
-export async function extractFacts(userContent, assistantContent, now = new Date(), existingClients = []) {
+export async function extractFacts(userContent, assistantContent, now = new Date(), existingClients = [], recentHistory = []) {
   const anthropic = getClient()
 
   // now.toISOString() would give the UTC instant — correct, but it forces Claude to convert to
@@ -435,6 +435,21 @@ export async function extractFacts(userContent, assistantContent, now = new Date
   // time (with its real offset attached) means Claude reasons in Rachid's timezone directly.
   const nowLocal = toIsoWithTimeZone(now, TIMEZONE)
 
+  // Include up to the last 4 prior messages (2 turns) as read-only reference context so
+  // multi-turn facts can be assembled — e.g. client name stated in Turn N-1 and vault provided
+  // in Turn N. Claude is explicitly told NOT to re-extract facts from prior turns; they exist
+  // only to resolve implicit references in the current exchange.
+  let priorContext = ''
+  if (Array.isArray(recentHistory) && recentHistory.length > 0) {
+    const lines = recentHistory.map(
+      (m) => `${m.role === 'user' ? 'Rachid' : 'Assistant'} : ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`
+    )
+    priorContext =
+      '\n\nContexte des échanges précédents (pour résoudre les références implicites uniquement' +
+      " — n'extrais PAS de faits de ces échanges, utilise-les uniquement pour comprendre l'échange actuel ci-dessous) :\n" +
+      lines.join('\n')
+  }
+
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: EXTRACTION_MAX_TOKENS,
@@ -442,7 +457,7 @@ export async function extractFacts(userContent, assistantContent, now = new Date
     messages: [
       {
         role: 'user',
-        content: `Date et heure actuelles (heure du Maroc, Africa/Casablanca) : ${nowLocal}${formatExistingClientsForPrompt(existingClients)}\n\nMessage de Rachid : ${userContent}\n\nRéponse de l'assistant : ${assistantContent}`,
+        content: `Date et heure actuelles (heure du Maroc, Africa/Casablanca) : ${nowLocal}${formatExistingClientsForPrompt(existingClients)}${priorContext}\n\nMessage de Rachid : ${userContent}\n\nRéponse de l'assistant : ${assistantContent}`,
       },
     ],
   })
