@@ -206,7 +206,7 @@ export default function Settings() {
 
           <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2">
             <div>
-              <label className="label-field">Prompt système</label>
+              <label className="label-field">Instructions personnalisées</label>
               <textarea
                 value={systemPrompt}
                 onChange={(e) => {
@@ -215,9 +215,11 @@ export default function Settings() {
                 }}
                 rows={10}
                 className="input-field resize-none font-mono text-[12px] leading-relaxed"
-                placeholder="Décrivez comment l'assistant doit se comporter…"
+                placeholder="Ajoutez des instructions spécifiques à votre façon de travailler…"
               />
-              <p className="mt-1.5 text-[11px] text-ink-400">Définit le ton, les priorités et les limites de l'assistant.</p>
+              <p className="mt-1.5 text-[11px] text-ink-400">
+                Ces notes s&apos;ajoutent au comportement de base de l&apos;assistant (toujours actif en code). Laissez ce champ vide ou identique au défaut pour utiliser uniquement le comportement standard.
+              </p>
             </div>
             <div>
               <label className="label-field">Contexte métier</label>

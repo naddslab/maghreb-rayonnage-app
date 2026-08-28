@@ -414,7 +414,18 @@ app.post('/api/chat', async (req, res) => {
       console.warn('Impossible de récupérer les réunions à venir pour le contexte IA :', err.message)
       return []
     })
-    const systemPrompt = buildSystemPrompt(aiSettings?.system_prompt || SYSTEM_PROMPT, facts, now, upcomingMeetings)
+    // SYSTEM_PROMPT (code constant) always provides the CRM's behavioral base — vault question,
+    // file-reference rule, tone, etc. The stored DB value is only appended as supplementary
+    // user instructions when it differs from the code constant, so future code edits take
+    // effect immediately without requiring a manual DB sync.
+    const userInstructions =
+      aiSettings?.system_prompt && aiSettings.system_prompt.trim() !== SYSTEM_PROMPT.trim()
+        ? aiSettings.system_prompt.trim()
+        : null
+    const basePrompt = userInstructions
+      ? `${SYSTEM_PROMPT}\n\nInstructions supplémentaires de Rachid :\n${userInstructions}`
+      : SYSTEM_PROMPT
+    const systemPrompt = buildSystemPrompt(basePrompt, facts, now, upcomingMeetings)
 
     // Fetch clients once and share across both file-loading and extraction — single consistent
     // snapshot for the entire turn, no second DB round-trip needed.
