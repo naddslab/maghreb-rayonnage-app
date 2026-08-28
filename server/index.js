@@ -87,6 +87,20 @@ function findClientByName(clients, name) {
   }
 
   console.warn(`findClientByName("${name}") : aucune correspondance exacte trouvée parmi ${clients.length} client(s).`)
+
+  // Defensive fallback: Claude occasionally echoes the full "Name (Company)" display label
+  // from the existing-clients list instead of just the bare name. Strip any trailing (…)
+  // suffix and retry before declaring no match, so a malformed extraction doesn't silently
+  // create a duplicate instead of updating the real client.
+  const stripped = normalized.replace(/\s*\([^)]*\)\s*$/, '').trim()
+  if (stripped && stripped !== normalized) {
+    const fallback = clients.find((c) => c.name && c.name.trim().toLowerCase() === stripped)
+    if (fallback) {
+      console.warn(`findClientByName("${name}") : correspondance après suppression du suffixe entreprise -> "${fallback.name}"`)
+      return fallback
+    }
+  }
+
   return null
 }
 

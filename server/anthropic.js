@@ -418,8 +418,8 @@ function formatExistingClientsForPrompt(existingClients) {
   if (!Array.isArray(existingClients) || existingClients.length === 0) return ''
   const lines = existingClients
     .slice(0, 50)
-    .map((c) => `- ${c.name}${c.company ? ` (${c.company})` : ''}${c.vaultId ? ` — coffre : ${c.vaultId}` : ''}`)
-  return `\n\nClients déjà connus (reprends exactement le même nom pour toute mise à jour ou référence) :\n${lines.join('\n')}`
+    .map((c) => `- "${c.name}"${c.company ? ` (entreprise : ${c.company})` : ''}${c.vaultId ? ` — coffre : ${c.vaultId}` : ''}`)
+  return `\n\nClients déjà connus (pour le champ "name" dans tes faits extraits, reprends UNIQUEMENT la valeur entre guillemets — pas l'entreprise entre parenthèses) :\n${lines.join('\n')}`
 }
 
 // Silently analyzes one exchange and returns any new facts worth remembering.
