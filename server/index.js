@@ -439,11 +439,12 @@ app.post('/api/chat', async (req, res) => {
     const basePrompt = userInstructions
       ? `${SYSTEM_PROMPT}\n\nInstructions supplémentaires de Rachid :\n${userInstructions}`
       : SYSTEM_PROMPT
-    const systemPrompt = buildSystemPrompt(basePrompt, facts, now, upcomingMeetings)
-
-    // Fetch clients once and share across both file-loading and extraction — single consistent
-    // snapshot for the entire turn, no second DB round-trip needed.
+    // Fetch clients before building the system prompt so the known-clients list can be injected
+    // into the conversational context — Claude needs it to check whether a mentioned person is
+    // already on file before deciding to ask the vault question. Also shared by file-loading and
+    // extraction below for a single consistent snapshot across the entire turn.
     const allClients = await getAllClients()
+    const systemPrompt = buildSystemPrompt(basePrompt, facts, now, upcomingMeetings, allClients)
 
     // If the message names a known client, pull their image/PDF files so Claude can actually
     // read them this turn (e.g. "que dit le contrat de Karim Benali ?") instead of only knowing

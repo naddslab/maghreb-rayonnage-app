@@ -201,7 +201,7 @@ function formatFactLine(fact, now) {
 // reads and repeats an already-correct duration instead of ever computing one itself.
 // dateStr/timeStr are pinned to Africa/Casablanca — the server may run in any timezone (Fly.io's
 // "iad" region is effectively UTC), but Rachid's business, and every date shown to him, is Morocco time.
-export function buildSystemPrompt(basePrompt = SYSTEM_PROMPT, facts = [], now = new Date(), upcomingMeetings = []) {
+export function buildSystemPrompt(basePrompt = SYSTEM_PROMPT, facts = [], now = new Date(), upcomingMeetings = [], knownClients = []) {
   const dateStr = now.toLocaleDateString('fr-FR', {
     weekday: 'long',
     day: 'numeric',
@@ -227,6 +227,19 @@ export function buildSystemPrompt(basePrompt = SYSTEM_PROMPT, facts = [], now = 
       '\n\nRéunions à venir (les durées ci-dessous sont déjà calculées avec précision — réutilise-les telles ' +
       'quelles, ne recalcule jamais toi-même un écart de temps) :\n' +
       lines.join('\n')
+  }
+
+  // Inject the known-clients registry so Claude can verify whether a named person is an
+  // existing client before deciding to ask the vault question. Without this, the vault rule
+  // ("only ask for NEW clients") is unenforceable because Claude has no list to check against.
+  if (Array.isArray(knownClients) && knownClients.length > 0) {
+    const clientLines = knownClients
+      .slice(0, 50)
+      .map((c) => `- "${c.name}"${c.vaultId ? ` (${c.vaultId})` : ''}`)
+    prompt +=
+      '\n\nClients déjà enregistrés (si un client mentionné par Rachid figure dans cette liste, ' +
+      'il est CONNU — ne demande PAS pour quel coffre il est, la fiche existe déjà) :\n' +
+      clientLines.join('\n')
   }
 
   const grouped = { client: [], goal: [], task: [], date: [] }
