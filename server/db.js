@@ -776,7 +776,10 @@ async function seedAiSettingsIfMissing() {
   if (await hasSeeded('ai_settings')) return
 
   if (!(await getAiSettings())) {
-    await saveAiSettings(SYSTEM_PROMPT, DEFAULT_BUSINESS_CONTEXT)
+    // Seed an empty system_prompt so the code constant (SYSTEM_PROMPT in anthropic.js) always
+    // wins on fresh deployments without requiring a manual DB sync after every code change.
+    // A non-empty DB value means Rachid has explicitly added custom instructions via Settings.
+    await saveAiSettings('', DEFAULT_BUSINESS_CONTEXT)
   }
 
   await markSeeded('ai_settings')

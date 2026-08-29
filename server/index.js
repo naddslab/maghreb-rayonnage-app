@@ -428,14 +428,12 @@ app.post('/api/chat', async (req, res) => {
       console.warn('Impossible de récupérer les réunions à venir pour le contexte IA :', err.message)
       return []
     })
-    // SYSTEM_PROMPT (code constant) always provides the CRM's behavioral base — vault question,
-    // file-reference rule, tone, etc. The stored DB value is only appended as supplementary
-    // user instructions when it differs from the code constant, so future code edits take
-    // effect immediately without requiring a manual DB sync.
-    const userInstructions =
-      aiSettings?.system_prompt && aiSettings.system_prompt.trim() !== SYSTEM_PROMPT.trim()
-        ? aiSettings.system_prompt.trim()
-        : null
+    // SYSTEM_PROMPT (code constant) always provides the CRM's behavioral base. A non-empty DB
+    // value means Rachid has explicitly added custom instructions via Settings — those are
+    // appended as an addendum. An empty string (the default seeded on fresh deployments) means
+    // no customization, so code changes to SYSTEM_PROMPT take effect immediately with zero
+    // manual DB syncing required.
+    const userInstructions = aiSettings?.system_prompt?.trim() || null
     const basePrompt = userInstructions
       ? `${SYSTEM_PROMPT}\n\nInstructions supplémentaires de Rachid :\n${userInstructions}`
       : SYSTEM_PROMPT
@@ -497,9 +495,8 @@ app.get('/api/ai-settings', async (req, res) => {
 app.put('/api/ai-settings', async (req, res) => {
   const systemPrompt = typeof req.body?.system_prompt === 'string' ? req.body.system_prompt : ''
   const businessContext = typeof req.body?.business_context === 'string' ? req.body.business_context : ''
-  if (!systemPrompt.trim()) {
-    return res.status(400).json({ error: 'Le prompt système ne peut pas être vide.' })
-  }
+  // Empty system_prompt is valid — it means Rachid has cleared his custom instructions and
+  // wants to revert to the code constant only. No longer rejected.
   res.json(await saveAiSettings(systemPrompt, businessContext))
 })
 
