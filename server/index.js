@@ -75,7 +75,11 @@ const SIMPLE_FACT_TYPES = new Set(['goal', 'task', 'date'])
 // silently picking whichever happens to come first. Logs the outcome either way, since a
 // silently-failed lookup here is what makes deal/meeting/activity updates from chat look "stuck"
 // without any visible error.
-function findClientByName(clients, name) {
+// allowFallback controls the suffix-stripping fallback that recovers from Claude echoing a
+// "Name (Company)" display label instead of just the bare name. Safe for creates/updates where
+// the worst outcome is a no-op, but must be disabled for destructive operations (delete_client)
+// where a fallback match could silently delete a different client that merely shares a base name.
+function findClientByName(clients, name, { allowFallback = true } = {}) {
   if (!name) return null
   const normalized = String(name).trim().toLowerCase()
   if (!normalized) return null
@@ -88,16 +92,18 @@ function findClientByName(clients, name) {
 
   console.warn(`findClientByName("${name}") : aucune correspondance exacte trouvée parmi ${clients.length} client(s).`)
 
-  // Defensive fallback: Claude occasionally echoes the full "Name (Company)" display label
-  // from the existing-clients list instead of just the bare name. Strip any trailing (…)
-  // suffix and retry before declaring no match, so a malformed extraction doesn't silently
-  // create a duplicate instead of updating the real client.
-  const stripped = normalized.replace(/\s*\([^)]*\)\s*$/, '').trim()
-  if (stripped && stripped !== normalized) {
-    const fallback = clients.find((c) => c.name && c.name.trim().toLowerCase() === stripped)
-    if (fallback) {
-      console.warn(`findClientByName("${name}") : correspondance après suppression du suffixe entreprise -> "${fallback.name}"`)
-      return fallback
+  if (allowFallback) {
+    // Defensive fallback: Claude occasionally echoes the full "Name (Company)" display label
+    // from the existing-clients list instead of just the bare name. Strip any trailing (…)
+    // suffix and retry before declaring no match, so a malformed extraction doesn't silently
+    // create a duplicate instead of updating the real client.
+    const stripped = normalized.replace(/\s*\([^)]*\)\s*$/, '').trim()
+    if (stripped && stripped !== normalized) {
+      const fallback = clients.find((c) => c.name && c.name.trim().toLowerCase() === stripped)
+      if (fallback) {
+        console.warn(`findClientByName("${name}") : correspondance après suppression du suffixe entreprise -> "${fallback.name}"`)
+        return fallback
+      }
     }
   }
 
@@ -281,7 +287,10 @@ async function persistExtractedFacts(extracted, existingClients) {
       if (f.fact_type === 'delete_client') {
         console.log('DELETE_CLIENT extracted:', c.client_name)
 
-        const client = findClientByName(knownClients, c.client_name)
+        // allowFallback: false — deletion must only proceed on an exact name match.
+        // The suffix-stripping fallback is unsafe here: it could silently delete a different
+        // client that happens to share the base name with a malformed extraction.
+        const client = findClientByName(knownClients, c.client_name, { allowFallback: false })
         console.log('Found client for deletion:', client ? client.name : 'NOT FOUND')
 
         if (!client) {
