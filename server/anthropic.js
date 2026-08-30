@@ -498,3 +498,35 @@ export async function extractFacts(userContent, assistantContent, now = new Date
     return []
   }
 }
+
+// Asks Claude to classify a single user message as a confirmation, cancellation, or
+// unrelated reply to a pending client-deletion prompt. Returns one of the three canonical
+// strings: 'CONFIRME', 'ANNULE', or 'AUTRE'. Anything unparseable is treated as AUTRE so
+// that a bad model response can never silently trigger a deletion.
+export async function classifyDeletionResponse(userMessage, pendingClientName) {
+  const anthropic = getClient()
+  const systemPrompt =
+    `Tu réponds UNIQUEMENT par un seul mot : CONFIRME, ANNULE, ou AUTRE.\n` +
+    `Rachid a demandé la suppression du client "${pendingClientName}".\n` +
+    `L'assistant lui a demandé de confirmer.\n` +
+    `Message de Rachid : "${userMessage}"\n` +
+    `Si Rachid confirme clairement qu'il veut supprimer (ex: oui, vas-y, confirme, supprime-le, d'accord), réponds CONFIRME.\n` +
+    `Si Rachid annule ou refuse clairement (ex: non, annule, laisse tomber, ne supprime pas), réponds ANNULE.\n` +
+    `Si le message ne répond pas clairement à cette question précise (autre sujet, ambiguïté, nouvelle demande), réponds AUTRE.\n` +
+    `Un seul mot, sans ponctuation, sans explication.`
+
+  const response = await anthropic.messages.create({
+    model: MODEL,
+    max_tokens: 10,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userMessage }],
+  })
+
+  const raw = (response.content.find((b) => b.type === 'text')?.text ?? '').trim().toUpperCase()
+  const VALID = new Set(['CONFIRME', 'ANNULE', 'AUTRE'])
+  const result = VALID.has(raw) ? raw : 'AUTRE'
+  if (!VALID.has(raw)) {
+    console.warn(`classifyDeletionResponse: réponse inattendue du modèle "${raw}" — traité comme AUTRE.`)
+  }
+  return result
+}

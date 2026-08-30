@@ -942,8 +942,50 @@ export async function initDb() {
     )
   `)
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pending_deletions (
+      id SERIAL PRIMARY KEY,
+      client_id INTEGER NOT NULL,
+      client_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `)
+
   await seedFactsIfEmpty()
   await seedAiSettingsIfMissing()
+}
+
+// Returns the single most-recent pending_deletions row, or null if none exists or the row
+// is older than 5 minutes (lazy expiry — no cron required). A stale row is deleted on read.
+export async function getPendingDeletion() {
+  const { rows } = await pool.query(
+    'SELECT * FROM pending_deletions ORDER BY created_at DESC LIMIT 1'
+  )
+  if (rows.length === 0) return null
+  const row = rows[0]
+  const ageMs = Date.now() - new Date(row.created_at).getTime()
+  if (ageMs > 5 * 60 * 1000) {
+    await pool.query('DELETE FROM pending_deletions')
+    return null
+  }
+  return { id: row.id, clientId: row.client_id, clientName: row.client_name, createdAt: row.created_at }
+}
+
+// Replaces any existing pending row with a fresh one for the given client.
+// There is deliberately only ever one active pending deletion at a time.
+export async function createPendingDeletion(clientId, clientName) {
+  await pool.query('DELETE FROM pending_deletions')
+  const { rows } = await pool.query(
+    'INSERT INTO pending_deletions (client_id, client_name) VALUES ($1, $2) RETURNING *',
+    [clientId, clientName]
+  )
+  const row = rows[0]
+  return { id: row.id, clientId: row.client_id, clientName: row.client_name, createdAt: row.created_at }
+}
+
+// Removes all pending deletion rows (called after confirmation or cancellation).
+export async function clearPendingDeletion() {
+  await pool.query('DELETE FROM pending_deletions')
 }
 
 // Checks out a pool client, wraps the callback in BEGIN/COMMIT/ROLLBACK, and releases the

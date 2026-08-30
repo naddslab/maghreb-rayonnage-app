@@ -42,12 +42,16 @@ import {
   deleteFile,
   getAllFiles,
   withTransaction,
+  getPendingDeletion,
+  createPendingDeletion,
+  clearPendingDeletion,
 } from './db.js'
 import {
   getAssistantReply,
   buildSystemPrompt,
   extractFacts,
   stripMarkdown,
+  classifyDeletionResponse,
   SYSTEM_PROMPT,
   VAULTS,
   resolveVaultId,
@@ -299,23 +303,13 @@ async function persistExtractedFacts(extracted, existingClients) {
         }
 
         try {
-          const files = await getFilesByClientId(client.id)
-          const result = await deleteClient(client.id)
-          console.log('Client deleted successfully:', result)
-          knownClients.splice(knownClients.indexOf(client), 1)
-          // The chat reply for this turn was already sent before this runs (extraction is
-          // fire-and-forget), so this confirmation can't appear in that same reply — it's saved
-          // as a new assistant message and will show up the next time the conversation is loaded.
-          await insertMessage('assistant', `${client.name} supprimé.`)
-          for (const file of files) {
-            if (file.filePath) {
-              deleteFileFromStorage(file.filePath).catch((err) =>
-                console.warn(`Suppression du fichier "${file.filePath}" dans le stockage a échoué (ignoré) :`, err.message)
-              )
-            }
-          }
+          await createPendingDeletion(client.id, client.name)
+          // Extraction runs after getAssistantReply for the same turn, so this assistant
+          // message is appended to history and will surface on the next page load.
+          await insertMessage('assistant', `Confirme-tu la suppression de ${client.name} ? Réponds "oui" ou "non".`)
+          console.log(`Pending deletion created for client "${client.name}" (id ${client.id}).`)
         } catch (err) {
-          console.error('Delete failed:', err.message)
+          console.error('createPendingDeletion failed:', err.message)
         }
         continue
       }
@@ -424,6 +418,54 @@ app.post('/api/chat', async (req, res) => {
   const content = typeof req.body?.content === 'string' ? req.body.content.trim() : ''
   if (!content) {
     return res.status(400).json({ error: 'Le message ne peut pas être vide.' })
+  }
+
+  // Confirmation gate for pending client deletions. This runs before any normal flow so that
+  // a "oui / non" reply never accidentally goes through Claude extraction and creates spurious
+  // facts. Short-circuit branches (CONFIRME, ANNULE, already-deleted) return immediately and
+  // must never call getAssistantReply / extractFacts / persistExtractedFacts. AUTRE falls
+  // through to the unchanged normal flow below, leaving the pending row in place.
+  try {
+    const pending = await getPendingDeletion()
+    if (pending) {
+      const verdict = await classifyDeletionResponse(content, pending.clientName)
+      console.log(`Pending deletion "${pending.clientName}" — verdict: ${verdict}`)
+
+      if (verdict === 'CONFIRME') {
+        const stillExists = await getClientById(pending.clientId)
+        const userMessage = await insertMessage('user', content)
+        if (!stillExists) {
+          await clearPendingDeletion()
+          const assistantMessage = await insertMessage('assistant', 'Ce client a déjà été supprimé.')
+          return res.json({ userMessage, assistantMessage })
+        }
+        const files = await getFilesByClientId(pending.clientId)
+        await deleteClient(pending.clientId)
+        await clearPendingDeletion()
+        for (const file of files) {
+          if (file.filePath) {
+            deleteFileFromStorage(file.filePath).catch((err) =>
+              console.warn(`Suppression du fichier "${file.filePath}" dans le stockage a échoué (ignoré) :`, err.message)
+            )
+          }
+        }
+        const assistantMessage = await insertMessage('assistant', `${pending.clientName} supprimé.`)
+        return res.json({ userMessage, assistantMessage })
+      }
+
+      if (verdict === 'ANNULE') {
+        await clearPendingDeletion()
+        const userMessage = await insertMessage('user', content)
+        const assistantMessage = await insertMessage('assistant', "D'accord, suppression annulée.")
+        return res.json({ userMessage, assistantMessage })
+      }
+
+      // AUTRE — fall through to normal flow; pending row intentionally left in place.
+    }
+  } catch (err) {
+    console.error('Erreur lors du traitement de la suppression en attente :', err)
+    // Non-fatal: if the gate itself fails, fall through to normal flow rather than
+    // blocking the user's message entirely.
   }
 
   try {
