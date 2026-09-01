@@ -817,6 +817,7 @@ app.post('/api/clients/:clientId/activities', async (req, res) => {
     return res.status(400).json({ error: 'description doit être une chaîne de caractères.' })
   }
   const activity = await createActivity(req.clientId, activityType, amount, description)
+  if (!activity) return res.status(200).json({ message: 'Activité en double ignorée.' })
   res.status(201).json(activity)
 })
 

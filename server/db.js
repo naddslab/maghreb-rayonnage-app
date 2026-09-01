@@ -566,6 +566,25 @@ export async function getAllActivitiesWithClientName() {
 export async function createActivity(clientId, activityType, amount, description) {
   const now = new Date().toISOString()
   try {
+    // Dedup window: 60 minutes, keyed on client_id + activity_type only.
+    // Description is intentionally excluded from the comparison: when the AI extraction
+    // re-processes an event visible in the trailing history window (e.g. "j'ai envoyé un devis
+    // à X" still present two turns later as prior context), the re-extracted fact can carry a
+    // slightly different description (vault name appended, phrasing variation, etc.) even though
+    // it represents the exact same real-world event. Matching on description would silently let
+    // those duplicates through. Matching on activity_type alone is the reliable signal.
+    const { rows: existing } = await pool.query(
+      `SELECT 1 FROM activities
+        WHERE client_id = $1
+          AND activity_type IS NOT DISTINCT FROM $2
+          AND created_at > NOW() - INTERVAL '60 minutes'
+        LIMIT 1`,
+      [clientId, activityType ?? null]
+    )
+    if (existing.length > 0) {
+      console.log(`createActivity: doublon ignoré pour client ${clientId} (${activityType})`)
+      return null
+    }
     const { rows } = await pool.query(
       `INSERT INTO activities (client_id, activity_type, amount, description, created_at)
        VALUES ($1, $2, $3, $4, $5)
